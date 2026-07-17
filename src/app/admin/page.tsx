@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Power, Users, ShieldCheck, Settings2, X, Check, Droplet, TrendingUp } from "lucide-react";
+import { Plus, Pencil, Power, Users, ShieldCheck, Settings2, X, Check, Droplet, TrendingUp, Bell, RefreshCw } from "lucide-react";
 import { VEHICLE_TYPES, WASHERS } from "@/lib/mock";
 import { createClient } from "@/lib/supabase/client";
 
@@ -14,10 +14,22 @@ const ROLE_COLORS: Record<string, { bg: string; fg: string }> = {
   washer:        { bg: "#1c2830", fg: "var(--muted)" },
 };
 
-const TABS = ["Users", "Soap Tracking", "Pricing", "System"] as const;
+const TABS = ["Users", "Soap Requests", "Soap Tracking", "Pricing", "System"] as const;
 type Tab = (typeof TABS)[number];
 
 type WasherStat = { id: string; name: string; soapOut: number; revenue: number; cars: number };
+
+type SoapReq = {
+  id: string;
+  request_number: string;
+  washer_name: string;
+  product_name: string;
+  notes: string;
+  quantity_requested: number;
+  quantity_approved: number | null;
+  status: string;
+  created_at: string;
+};
 
 const PRICING_INIT = VEHICLE_TYPES.map((v) => ({ ...v }));
 
@@ -47,6 +59,8 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [washerStats, setWasherStats] = useState<WasherStat[]>([]);
   const [trackLoading, setTrackLoading] = useState(false);
+  const [soapReqs, setSoapReqs] = useState<SoapReq[]>([]);
+  const [reqsLoading, setReqsLoading] = useState(false);
 
   async function loadStaff() {
     setStaffLoading(true);
@@ -106,7 +120,64 @@ export default function AdminPage() {
     setTrackLoading(false);
   }
 
-  useEffect(() => { loadStaff(); loadTracking(); }, []);
+  async function loadSoapRequests() {
+    setReqsLoading(true);
+    const supabase = createClient();
+    try {
+      const { data } = await supabase
+        .from("soap_requests")
+        .select("id, request_number, quantity_requested, quantity_approved, status, notes, created_at, profiles(full_name), inventory(product_name)")
+        .order("created_at", { ascending: false });
+      type Row = { id: string; request_number: string; quantity_requested: number; quantity_approved: number | null; status: string; notes: string | null; created_at: string; profiles: { full_name: string } | null; inventory: { product_name: string } | null };
+      if (data?.length) {
+        setSoapReqs((data as Row[]).map((r) => ({
+          id: r.id, request_number: r.request_number,
+          washer_name: r.profiles?.full_name ?? "Unknown",
+          product_name: r.inventory?.product_name ?? "—",
+          notes: r.notes ?? "—",
+          quantity_requested: r.quantity_requested,
+          quantity_approved: r.quantity_approved,
+          status: r.status, created_at: r.created_at,
+        })));
+      } else {
+        const { REQUESTS } = await import("@/lib/mock");
+        setSoapReqs(REQUESTS.map((r) => ({
+          id: r.id, request_number: r.request_number,
+          washer_name: r.washer, product_name: r.product, notes: "—",
+          quantity_requested: r.qty, quantity_approved: null,
+          status: r.status, created_at: "",
+        })));
+      }
+    } catch {
+      const { REQUESTS } = await import("@/lib/mock");
+      setSoapReqs(REQUESTS.map((r) => ({
+        id: r.id, request_number: r.request_number,
+        washer_name: r.washer, product_name: r.product, notes: "—",
+        quantity_requested: r.qty, quantity_approved: null,
+        status: r.status, created_at: "",
+      })));
+    }
+    setReqsLoading(false);
+  }
+
+  async function adminDecide(id: string, status: "approved" | "rejected") {
+    const req = soapReqs.find((r) => r.id === id);
+    if (!req) return;
+    const qty = status === "approved" ? req.quantity_requested : null;
+    setSoapReqs((prev) => prev.map((r) => r.id === id ? { ...r, status, quantity_approved: qty } : r));
+    const supabase = createClient();
+    try {
+      await supabase.from("soap_requests").update({
+        status, quantity_approved: qty,
+        approved_by: (await supabase.auth.getUser()).data.user?.id,
+      }).eq("id", id);
+      notify(status === "approved" ? `Approved — ${qty} ml dispensed.` : "Request rejected.");
+    } catch {
+      notify(status === "approved" ? "Approved (demo)." : "Rejected (demo).");
+    }
+  }
+
+  useEffect(() => { loadStaff(); loadTracking(); loadSoapRequests(); }, []);
 
   function notify(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000); }
 
@@ -190,7 +261,7 @@ export default function AdminPage() {
           { label: "Total Staff", value: staff.length, icon: Users, accent: "var(--accent)" },
           { label: "Active", value: activeCount, icon: ShieldCheck, accent: "var(--accent)" },
           { label: "Inactive", value: staff.length - activeCount, icon: Power, accent: "var(--red)" },
-          { label: "Roles", value: roleBreakdown.filter((r) => r.count > 0).length, icon: Settings2, accent: "var(--violet)" },
+          { label: "Pending Requests", value: soapReqs.filter((r) => r.status === "pending").length, icon: Bell, accent: soapReqs.some((r) => r.status === "pending") ? "var(--amber)" : "var(--accent)" },
         ].map(({ label, value, icon: Icon, accent }) => (
           <div key={label} className="rounded-2xl p-5 border border-line bg-panel flex items-center justify-between">
             <div>
@@ -281,6 +352,93 @@ export default function AdminPage() {
                 )}
               </tbody>
             </table>
+          )}
+        </div>
+      )}
+
+      {tab === "Soap Requests" && (
+        <div className="rounded-2xl border border-line bg-panel overflow-hidden">
+          <div className="p-5 flex items-center justify-between">
+            <div>
+              <h3 className="font-[family-name:var(--font-display)] text-lg">All Soap Requests</h3>
+              <p className="text-xs text-muted mt-0.5">
+                {soapReqs.filter((r) => r.status === "pending").length} pending
+              </p>
+            </div>
+            <button onClick={loadSoapRequests} className="p-2.5 rounded-xl bg-panel-2 border border-line text-muted hover:text-text">
+              <RefreshCw size={15} />
+            </button>
+          </div>
+          {reqsLoading ? (
+            <div className="flex items-center justify-center py-12"><div className="w-6 h-6 rounded-full border-2 border-accent border-t-transparent animate-spin" /></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-muted border-t border-b border-line">
+                    <th className="px-5 py-3">Request #</th>
+                    <th className="px-5 py-3">Washer</th>
+                    <th className="px-5 py-3">Product</th>
+                    <th className="px-5 py-3">For</th>
+                    <th className="px-5 py-3">Qty</th>
+                    <th className="px-5 py-3">Date</th>
+                    <th className="px-5 py-3">Status</th>
+                    <th className="px-5 py-3">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {soapReqs.map((req) => {
+                    const tone: Record<string, { bg: string; fg: string }> = {
+                      pending:  { bg: "#3A2E14", fg: "var(--amber)" },
+                      approved: { bg: "#123A34", fg: "var(--accent)" },
+                      rejected: { bg: "#3A1A1A", fg: "var(--red)" },
+                      partial:  { bg: "#2a1f4a", fg: "var(--violet)" },
+                    };
+                    const t = tone[req.status] ?? tone.pending;
+                    return (
+                      <tr key={req.id} className="border-b border-line hover:bg-panel-2 transition">
+                        <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{req.request_number}</td>
+                        <td className="px-5 py-3.5 font-medium">{req.washer_name}</td>
+                        <td className="px-5 py-3.5 text-muted text-xs">{req.product_name}</td>
+                        <td className="px-5 py-3.5 text-muted text-xs">{req.notes}</td>
+                        <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">
+                          {req.quantity_requested} ml
+                          {req.quantity_approved !== null && req.quantity_approved !== req.quantity_requested && (
+                            <span className="text-muted"> → {req.quantity_approved} ml</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-muted">
+                          {req.created_at ? new Date(req.created_at).toLocaleDateString() : "—"}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <span className="px-2.5 py-1 rounded-full text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-wide"
+                            style={{ background: t.bg, color: t.fg }}>
+                            {req.status}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          {req.status === "pending" ? (
+                            <div className="flex gap-2">
+                              <button onClick={() => adminDecide(req.id, "approved")}
+                                className="px-3 py-1.5 rounded-xl text-xs bg-[#123A34] text-accent flex items-center gap-1.5">
+                                <Check size={13} /> Approve
+                              </button>
+                              <button onClick={() => adminDecide(req.id, "rejected")}
+                                className="px-3 py-1.5 rounded-xl text-xs bg-[#3A1A1A] text-red flex items-center gap-1.5">
+                                <X size={13} /> Reject
+                              </button>
+                            </div>
+                          ) : <span className="text-xs text-muted">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {soapReqs.length === 0 && (
+                    <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-muted">No requests found.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

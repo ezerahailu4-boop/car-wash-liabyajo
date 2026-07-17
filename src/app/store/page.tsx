@@ -11,7 +11,8 @@ type SoapReq = {
   id: string;
   request_number: string;
   washer_name: string;
-  vehicle_type: string;
+  product_name: string;
+  notes: string;
   quantity_requested: number;
   quantity_approved: number | null;
   status: string;
@@ -64,15 +65,16 @@ export default function StorePage() {
     try {
       const { data } = await supabase
         .from("soap_requests")
-        .select("id, request_number, quantity_requested, quantity_approved, status, notes, created_at, profiles(full_name)")
+        .select("id, request_number, quantity_requested, quantity_approved, status, notes, created_at, profiles(full_name), inventory(product_name)")
         .order("created_at", { ascending: false });
       if (data?.length) {
-        type SoapReqRow = { id: string; request_number: string; quantity_requested: number; quantity_approved: number | null; status: string; notes: string | null; created_at: string; profiles: { full_name: string } | null };
+        type SoapReqRow = { id: string; request_number: string; quantity_requested: number; quantity_approved: number | null; status: string; notes: string | null; created_at: string; profiles: { full_name: string } | null; inventory: { product_name: string } | null };
         setSoapReqs((data as SoapReqRow[]).map((r) => ({
           id: r.id,
           request_number: r.request_number,
-          washer_name: (r.profiles as { full_name: string } | null)?.full_name ?? "Unknown",
-          vehicle_type: r.notes ?? "—",
+          washer_name: r.profiles?.full_name ?? "Unknown",
+          product_name: r.inventory?.product_name ?? "—",
+          notes: r.notes ?? "—",
           quantity_requested: r.quantity_requested,
           quantity_approved: r.quantity_approved,
           status: r.status,
@@ -81,7 +83,7 @@ export default function StorePage() {
       } else {
         setSoapReqs(MOCK_REQUESTS.map((r) => ({
           id: r.id, request_number: r.request_number,
-          washer_name: r.washer, vehicle_type: "Small Vehicle × 1",
+          washer_name: r.washer, product_name: r.product, notes: "Small Vehicle × 1",
           quantity_requested: r.qty, quantity_approved: null,
           status: r.status, created_at: "",
         })));
@@ -89,7 +91,7 @@ export default function StorePage() {
     } catch {
       setSoapReqs(MOCK_REQUESTS.map((r) => ({
         id: r.id, request_number: r.request_number,
-        washer_name: r.washer, vehicle_type: "Small Vehicle × 1",
+        washer_name: r.washer, product_name: r.product, notes: "Small Vehicle × 1",
         quantity_requested: r.qty, quantity_approved: null,
         status: r.status, created_at: "",
       })));
@@ -235,6 +237,7 @@ export default function StorePage() {
                 <tr className="text-left text-xs uppercase tracking-wide text-muted border-t border-b border-line">
                   <th className="px-5 py-3">Request #</th>
                   <th className="px-5 py-3">Washer</th>
+                  <th className="px-5 py-3">Product</th>
                   <th className="px-5 py-3">For</th>
                   <th className="px-5 py-3">Requested</th>
                   <th className="px-5 py-3">Approve Qty</th>
@@ -248,8 +251,9 @@ export default function StorePage() {
                   return (
                     <tr key={req.id} className="border-b border-line">
                       <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{req.request_number}</td>
-                      <td className="px-5 py-3.5">{req.washer_name}</td>
-                      <td className="px-5 py-3.5 text-muted text-xs">{req.vehicle_type}</td>
+                      <td className="px-5 py-3.5 font-medium">{req.washer_name}</td>
+                      <td className="px-5 py-3.5 text-muted text-xs">{req.product_name}</td>
+                      <td className="px-5 py-3.5 text-muted text-xs">{req.notes}</td>
                       <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{req.quantity_requested} ml</td>
                       <td className="px-5 py-3.5">
                         {req.status === "pending" ? (
@@ -287,7 +291,7 @@ export default function StorePage() {
                   );
                 })}
                 {soapReqs.length === 0 && (
-                  <tr><td colSpan={7} className="px-5 py-8 text-center text-sm text-muted">No requests yet.</td></tr>
+                  <tr><td colSpan={8} className="px-5 py-8 text-center text-sm text-muted">No requests yet.</td></tr>
                 )}
               </tbody>
             </table>
