@@ -17,6 +17,9 @@ create table profiles (
 );
 
 -- ---------- Vehicle types & washing standards ----------
+-- Standards sourced from "Vehicle Car Wash Service — Detergent Consumption Standard"
+-- (Maintenance and Production Division, May 2026). Approved detergent: LARGO,
+-- 5L = ETB 940 (ETB 188/L).
 create table vehicle_types (
   id text primary key,              -- 'small' | 'medium' | 'large'
   name text not null,
@@ -24,14 +27,15 @@ create table vehicle_types (
   standard_minutes int not null,
   workers_required int not null default 2,
   default_soap_ml numeric not null,
+  detergent_cost_etb numeric not null default 0,
   default_price numeric not null,
   notes text
 );
 
-insert into vehicle_types (id, name, examples, standard_minutes, workers_required, default_soap_ml, default_price) values
-  ('small', 'Small Vehicle', 'Sedan, SUV, Pickup, Automobile', 45, 2, 10, 350),
-  ('medium', 'Medium Vehicle', 'Isuzu, FA Truck, Sino Dump Truck', 120, 2, 20, 900),
-  ('large', 'Large Vehicle', 'Trailer, Heavy Truck', 240, 2, 35, 1800);
+insert into vehicle_types (id, name, examples, standard_minutes, workers_required, default_soap_ml, detergent_cost_etb, default_price) values
+  ('small', 'Light Vehicle', 'Automobile, Minibus, Pickup', 45, 2, 180, 33.84, 350),
+  ('medium', 'Medium Vehicle', 'Sino Truck, Isuzu, Mid Bus', 120, 2, 250, 47.00, 900),
+  ('large', 'Heavy Vehicle', 'Trailer', 180, 2, 500, 94.00, 1800);
 
 -- ---------- Customers & vehicles ----------
 create table customers (

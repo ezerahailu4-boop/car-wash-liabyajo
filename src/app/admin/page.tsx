@@ -167,6 +167,7 @@ export default function AdminPage() {
         supabase.from("vehicle_types").update({
           default_price: v.default_price,
           default_soap_ml: v.default_soap_ml,
+          detergent_cost_etb: v.detergent_cost_etb,
           standard_minutes: v.standard_minutes,
         }).eq("id", v.id)
       ));
@@ -369,7 +370,7 @@ export default function AdminPage() {
           <h3 className="font-[family-name:var(--font-display)] text-lg">Vehicle Type Pricing</h3>
           <div className="space-y-4">
             {pricing.map((v, i) => (
-              <div key={v.id} className="rounded-xl p-4 border border-line bg-panel-2 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+              <div key={v.id} className="rounded-xl p-4 border border-line bg-panel-2 grid grid-cols-1 sm:grid-cols-5 gap-4 items-end">
                 <div>
                   <p className="text-xs text-muted mb-1 uppercase tracking-wide">{v.name}</p>
                   <p className="text-[11px] text-muted font-[family-name:var(--font-mono)]">{v.examples}</p>
@@ -377,6 +378,7 @@ export default function AdminPage() {
                 {[
                   { label: "Price (birr)", key: "default_price" as const },
                   { label: "Soap (ml)", key: "default_soap_ml" as const },
+                  { label: "Detergent Cost (birr)", key: "detergent_cost_etb" as const },
                   { label: "Std. Minutes", key: "standard_minutes" as const },
                 ].map(({ label, key }) => (
                   <div key={key}>

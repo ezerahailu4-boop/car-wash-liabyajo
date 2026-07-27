@@ -81,7 +81,7 @@ export default function StorePage() {
       } else {
         setSoapReqs(MOCK_REQUESTS.map((r) => ({
           id: r.id, request_number: r.request_number,
-          washer_name: r.washer, vehicle_type: "Small Vehicle × 1",
+          washer_name: r.washer, vehicle_type: "Light Vehicle × 1",
           quantity_requested: r.qty, quantity_approved: null,
           status: r.status, created_at: "",
         })));
@@ -89,7 +89,7 @@ export default function StorePage() {
     } catch {
       setSoapReqs(MOCK_REQUESTS.map((r) => ({
         id: r.id, request_number: r.request_number,
-        washer_name: r.washer, vehicle_type: "Small Vehicle × 1",
+        washer_name: r.washer, vehicle_type: "Light Vehicle × 1",
         quantity_requested: r.qty, quantity_approved: null,
         status: r.status, created_at: "",
       })));

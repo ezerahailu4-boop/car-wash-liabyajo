@@ -7,6 +7,7 @@ export type VehicleType = {
   standard_minutes: number;
   workers_required: number;
   default_soap_ml: number;
+  detergent_cost_etb: number;
   default_price: number;
 };
 
