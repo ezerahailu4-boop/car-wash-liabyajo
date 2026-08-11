@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC: string[] = [];
+const PUBLIC: string[] = ["/login"];
 
 // What each role is allowed to access
 const ROLE_HOME: Record<string, string> = {
@@ -46,32 +46,31 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   // Not logged in → send to login
-  // Auth + RBAC disabled for now — re-enable when login is wired up
-  // if (!user) {
-  //   const url = request.nextUrl.clone();
-  //   url.pathname = "/login";
-  //   url.search = "";
-  //   return NextResponse.redirect(url);
-  // }
-  //
-  // const { data: profile } = await supabase
-  //   .from("profiles")
-  //   .select("role")
-  //   .eq("id", user.id)
-  //   .single();
-  //
-  // const role = profile?.role ?? "washer";
-  // const allowed = ROLE_ALLOWED[role] ?? ["/portal"];
-  //
-  // const isAllowed = allowed.some((p) => pathname === p || pathname.startsWith(p + "/"));
-  //
-  // if (!isAllowed) {
-  //   const home = ROLE_HOME[role] ?? "/portal";
-  //   const url = request.nextUrl.clone();
-  //   url.pathname = home;
-  //   url.search = "";
-  //   return NextResponse.redirect(url);
-  // }
+  if (!user) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  const role = profile?.role ?? "washer";
+  const allowed = ROLE_ALLOWED[role] ?? ["/portal"];
+
+  const isAllowed = allowed.some((p) => pathname === p || pathname.startsWith(p + "/"));
+
+  if (!isAllowed) {
+    const home = ROLE_HOME[role] ?? "/portal";
+    const url = request.nextUrl.clone();
+    url.pathname = home;
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
 
   return response;
 }

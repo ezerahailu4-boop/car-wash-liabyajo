@@ -1,8 +1,10 @@
 // Fallback data shown until Supabase env vars are configured / tables are seeded.
+// Standards per "Vehicle Car Wash Service — Detergent Consumption Standard" (May 2026):
+// detergent = LARGO, 5L = ETB 940 (ETB 188/L). Manpower: 2 persons/wash across categories.
 export const VEHICLE_TYPES = [
-  { id: "small", name: "Small Vehicle", examples: "Sedan, SUV, Pickup", standard_minutes: 45, default_soap_ml: 10, default_price: 350, color: "#2FD5C8" },
-  { id: "medium", name: "Medium Vehicle", examples: "Isuzu, FA Truck, Sino Dump", standard_minutes: 120, default_soap_ml: 20, default_price: 900, color: "#F2A93B" },
-  { id: "large", name: "Large Vehicle", examples: "Trailer, Heavy Truck", standard_minutes: 240, default_soap_ml: 35, default_price: 1800, color: "#8B7CF6" },
+  { id: "small", name: "Light Vehicle", examples: "Automobile, Minibus, Pickup", standard_minutes: 45, workers_required: 2, default_soap_ml: 180, detergent_cost_etb: 33.84, default_price: 350, color: "#2FD5C8" },
+  { id: "medium", name: "Medium Vehicle", examples: "Sino Truck, Isuzu, Mid Bus", standard_minutes: 120, workers_required: 2, default_soap_ml: 250, detergent_cost_etb: 47.0, default_price: 900, color: "#F2A93B" },
+  { id: "large", name: "Heavy Vehicle", examples: "Trailer", standard_minutes: 180, workers_required: 2, default_soap_ml: 500, detergent_cost_etb: 94.0, default_price: 1800, color: "#8B7CF6" },
 ] as const;
 
 export const WASHERS = [
@@ -13,7 +15,7 @@ export const WASHERS = [
 ];
 
 export const INVENTORY = [
-  { id: "1", product_name: "Foam Shampoo Concentrate", category: "Soap", total_ml: 18000, min_stock_ml: 5000, supplier: "Chemtech PLC", expiry_date: "2026-11-02", status: "ok" as const },
+  { id: "1", product_name: "LARGO Detergent", category: "Soap", total_ml: 18000, min_stock_ml: 5000, supplier: "Chemtech PLC", expiry_date: "2026-11-02", status: "ok" as const },
   { id: "2", product_name: "Tire Shine Gel", category: "Finishing", total_ml: 6200, min_stock_ml: 4000, supplier: "AutoCare Import", expiry_date: "2027-02-14", status: "low" as const },
   { id: "3", product_name: "Glass Cleaner", category: "Interior", total_ml: 9400, min_stock_ml: 3000, supplier: "Chemtech PLC", expiry_date: "2026-09-30", status: "ok" as const },
   { id: "4", product_name: "Degreaser Heavy Duty", category: "Soap", total_ml: 2100, min_stock_ml: 5000, supplier: "Habesha Chem", expiry_date: "2026-08-10", status: "critical" as const },
@@ -49,12 +51,12 @@ export const SUPPLIERS = [
 ];
 
 export const WASH_HISTORY: { id: string; plate: string; vehicle_type: string; washer: string; price: number; soap_ml: number; completed_at: string }[] = [
-  { id: "1", plate: "AA-A-12345", vehicle_type: "Small Vehicle", washer: "Yonas Bekele", price: 350, soap_ml: 10, completed_at: "2025-07-04T08:12:00" },
-  { id: "2", plate: "AA-B-67890", vehicle_type: "Medium Vehicle", washer: "Yonas Bekele", price: 900, soap_ml: 20, completed_at: "2025-07-04T09:45:00" },
-  { id: "3", plate: "AA-C-11111", vehicle_type: "Small Vehicle", washer: "Selam Girma", price: 350, soap_ml: 10, completed_at: "2025-07-04T10:20:00" },
-  { id: "4", plate: "AA-D-22222", vehicle_type: "Large Vehicle", washer: "Yonas Bekele", price: 1800, soap_ml: 35, completed_at: "2025-07-04T11:00:00" },
-  { id: "5", plate: "AA-E-33333", vehicle_type: "Small Vehicle", washer: "Hana Tesfaye", price: 350, soap_ml: 10, completed_at: "2025-07-04T11:30:00" },
-  { id: "6", plate: "AA-F-44444", vehicle_type: "Medium Vehicle", washer: "Dawit Alemu", price: 900, soap_ml: 20, completed_at: "2025-07-04T12:10:00" },
+  { id: "1", plate: "AA-A-12345", vehicle_type: "Light Vehicle", washer: "Yonas Bekele", price: 350, soap_ml: 180, completed_at: "2025-07-04T08:12:00" },
+  { id: "2", plate: "AA-B-67890", vehicle_type: "Medium Vehicle", washer: "Yonas Bekele", price: 900, soap_ml: 250, completed_at: "2025-07-04T09:45:00" },
+  { id: "3", plate: "AA-C-11111", vehicle_type: "Light Vehicle", washer: "Selam Girma", price: 350, soap_ml: 180, completed_at: "2025-07-04T10:20:00" },
+  { id: "4", plate: "AA-D-22222", vehicle_type: "Heavy Vehicle", washer: "Yonas Bekele", price: 1800, soap_ml: 500, completed_at: "2025-07-04T11:00:00" },
+  { id: "5", plate: "AA-E-33333", vehicle_type: "Light Vehicle", washer: "Hana Tesfaye", price: 350, soap_ml: 180, completed_at: "2025-07-04T11:30:00" },
+  { id: "6", plate: "AA-F-44444", vehicle_type: "Medium Vehicle", washer: "Dawit Alemu", price: 900, soap_ml: 250, completed_at: "2025-07-04T12:10:00" },
 ];
 
 export const REVENUE_TREND = [

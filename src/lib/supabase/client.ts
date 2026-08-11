@@ -39,8 +39,18 @@ function createFallbackClient() {
     auth: {
       getUser: async () => ({ data: { user: null }, error: null }),
       signOut: async () => ({ error: null }),
+      signInWithPassword: async () => ({
+        data: { user: null, session: null },
+        error: { message: "Supabase is not configured (missing env vars)." },
+      }),
     },
     from: () => createFallbackQueryBuilder(),
+    storage: {
+      from: () => ({
+        upload: async () => ({ data: null, error: { message: "Supabase is not configured (missing env vars)." } }),
+        getPublicUrl: () => ({ data: { publicUrl: "" } }),
+      }),
+    },
   };
 }
 

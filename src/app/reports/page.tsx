@@ -8,6 +8,9 @@ import {
 } from "recharts";
 import { REVENUE_TREND, WASHERS } from "@/lib/mock";
 import { fetchWashTransactions } from "@/lib/queries";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 
 type Txn = {
   id: string; price: number; soap_used_ml: number; started_at: string;
@@ -99,6 +102,66 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   }
 
+  function exportExcel() {
+    const rows = txns.map((t) => ({
+      Date: t.started_at.slice(0, 10),
+      Plate: t.vehicles?.plate ?? "",
+      "Vehicle Type": t.vehicle_type_id,
+      Washer: t.profiles?.full_name ?? "",
+      "Price (birr)": t.price,
+      "Soap (ml)": t.soap_used_ml,
+      Minutes: t.actual_minutes ?? "",
+    }));
+    const summary = [
+      { Metric: "Total Washes", Value: txns.length },
+      { Metric: "Total Revenue (birr)", Value: totalRevenue },
+      { Metric: "Soap Used (ml)", Value: totalSoap },
+      { Metric: "Avg Wash Time (min)", Value: avgTime },
+      { Metric: "Period", Value: `${from} to ${to}` },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), "Summary");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Transactions");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(displayWashers.map((w) => ({
+      Washer: w.name, Cars: w.cars, "Revenue (birr)": w.revenue, "Soap (ml)": w.soap,
+    }))), "Per Washer");
+    XLSX.writeFile(wb, `washos-report-${from}-to-${to}.xlsx`);
+  }
+
+  function exportPDF() {
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("WashOS — Report", 14, 18);
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text(`Period: ${from} to ${to}`, 14, 25);
+
+    doc.setTextColor(0);
+    doc.setFontSize(11);
+    doc.text(`Total Washes: ${txns.length}`, 14, 35);
+    doc.text(`Total Revenue: ${totalRevenue.toLocaleString()} birr`, 14, 42);
+    doc.text(`Soap Used: ${totalSoap.toLocaleString()} ml`, 14, 49);
+    doc.text(`Avg Wash Time: ${avgTime} min`, 14, 56);
+
+    autoTable(doc, {
+      startY: 64,
+      head: [["Date", "Plate", "Type", "Washer", "Price", "Soap (ml)", "Min"]],
+      body: txns.slice(0, 200).map((t) => [
+        t.started_at.slice(0, 10),
+        t.vehicles?.plate ?? "—",
+        t.vehicle_type_id,
+        t.profiles?.full_name ?? "—",
+        `${t.price} birr`,
+        `${t.soap_used_ml}`,
+        `${t.actual_minutes ?? "—"}`,
+      ]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [47, 213, 200] },
+    });
+
+    doc.save(`washos-report-${from}-to-${to}.pdf`);
+  }
+
   const displayRevenue = useMock ? REVENUE_TREND : dailyData;
   const displayWashers = useMock
     ? WASHERS.map((w) => ({ name: w.name, cars: w.carsToday, revenue: w.revenueToday, soap: w.soap }))
@@ -129,8 +192,14 @@ export default function ReportsPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={load} className="p-2.5 rounded-xl bg-panel-2 border border-line text-muted hover:text-text"><RefreshCw size={15} /></button>
-          <button onClick={exportCSV} className="px-4 py-2 rounded-xl text-sm font-medium bg-accent text-[#06201D] flex items-center gap-2">
-            <Download size={15} /> Export CSV
+          <button onClick={exportCSV} className="px-4 py-2 rounded-xl text-sm font-medium bg-panel-2 border border-line text-muted hover:text-text flex items-center gap-2">
+            <Download size={15} /> CSV
+          </button>
+          <button onClick={exportExcel} className="px-4 py-2 rounded-xl text-sm font-medium bg-panel-2 border border-line text-muted hover:text-text flex items-center gap-2">
+            <Download size={15} /> Excel
+          </button>
+          <button onClick={exportPDF} className="px-4 py-2 rounded-xl text-sm font-medium bg-accent text-[#06201D] flex items-center gap-2">
+            <Download size={15} /> PDF
           </button>
         </div>
       </div>
