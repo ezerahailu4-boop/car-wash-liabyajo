@@ -23,21 +23,32 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
     const supabase = createClient();
-    const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-    if (signInError || !data.user) {
-      setError(
-        signInError?.message === "Invalid login credentials"
-          ? "Incorrect email or password."
-          : signInError?.message ?? "Sign in failed."
-      );
+    try {
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+
+      if (signInError || !data?.user) {
+        const msg = signInError?.message;
+        setError(
+          msg === "Invalid login credentials"
+            ? "Incorrect email or password."
+            : typeof msg === "string" && msg.length > 0
+              ? msg
+              : "Sign in failed. Check your connection and Supabase configuration."
+        );
+        setLoading(false);
+        return;
+      }
+
+      const { data: profile } = await supabase.from("profiles").select("role").eq("id", data.user.id).single();
+      const home = ROLE_HOME[profile?.role ?? "washer"] ?? "/portal";
+      router.replace(home);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error signing in. Please try again.");
       setLoading(false);
-      return;
     }
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", data.user.id).single();
-    const home = ROLE_HOME[profile?.role ?? "washer"] ?? "/portal";
-    router.replace(home);
-    router.refresh();
   }
 
   return (
