@@ -83,7 +83,6 @@ export default function StorePage() {
       } else {
         setSoapReqs(MOCK_REQUESTS.map((r) => ({
           id: r.id, request_number: r.request_number,
-<<<<<<< HEAD
           washer_name: r.washer, product_name: r.product, notes: "Small Vehicle × 1",
           quantity_requested: r.qty, quantity_approved: null,
           status: r.status, created_at: "",

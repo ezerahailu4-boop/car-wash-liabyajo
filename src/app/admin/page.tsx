@@ -55,8 +55,11 @@ export default function AdminPage() {
   const [editUser, setEditUser] = useState<StaffMember | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", role: "washer", phone: "" });
+  const [form, setForm] = useState({ name: "", role: "washer", phone: "", email: "", password: "" });
   const [saving, setSaving] = useState(false);
+  const [resetTarget, setResetTarget] = useState<StaffMember | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetSaving, setResetSaving] = useState(false);
   const [washerStats, setWasherStats] = useState<WasherStat[]>([]);
   const [trackLoading, setTrackLoading] = useState(false);
   const [soapReqs, setSoapReqs] = useState<SoapReq[]>([]);
@@ -197,38 +200,69 @@ export default function AdminPage() {
     const supabase = createClient();
     try {
       if (editUser) {
-        await supabase.from("profiles").update({ full_name: form.name, role: form.role, phone: form.phone || null }).eq("id", editUser.id);
+        const { error } = await supabase
+          .from("profiles")
+          .update({ full_name: form.name, role: form.role, phone: form.phone || null })
+          .eq("id", editUser.id);
+        if (error) throw error;
         setStaff((prev) => prev.map((s) => (s.id === editUser.id ? { ...s, name: form.name, role: form.role, phone: form.phone } : s)));
         notify("User updated.");
       } else {
-        // New users need auth — insert profile only (assumes auth user exists or is created separately)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const supabaseAny = supabase as any;
-        const { data } = await supabaseAny.from("profiles").insert({ full_name: form.name, role: form.role, phone: form.phone || null, active: true }).select().single();
-        type NewProfile = { id: string; created_at: string };
-        if (data) {
-          const p = data as NewProfile;
-          setStaff((prev) => [...prev, { id: p.id, name: form.name, role: form.role, phone: form.phone, active: true, joined: p.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10) }]);
+        if (!form.email || !form.password) {
+          notify("Email and password are required to create a login.");
+          setSaving(false);
+          return;
         }
-        notify("User added.");
+        if (form.password.length < 8) {
+          notify("Password must be at least 8 characters.");
+          setSaving(false);
+          return;
+        }
+        const { data: newId, error } = await supabase.rpc("admin_create_employee", {
+          p_email: form.email,
+          p_password: form.password,
+          p_full_name: form.name,
+          p_role: form.role,
+          p_phone: form.phone || null,
+        });
+        if (error) throw error;
+        setStaff((prev) => [
+          ...prev,
+          { id: newId as string, name: form.name, role: form.role, phone: form.phone, active: true, joined: new Date().toISOString().slice(0, 10) },
+        ]);
+        notify(`${form.name} can now log in with ${form.email}.`);
       }
-    } catch {
-      if (editUser) {
-        setStaff((prev) => prev.map((s) => (s.id === editUser.id ? { ...s, ...form } : s)));
-      } else {
-        setStaff((prev) => [...prev, { id: String(Date.now()), ...form, active: true, joined: new Date().toISOString().slice(0, 10) }]);
-      }
-      notify(editUser ? "User updated (demo)." : "User added (demo).");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Something went wrong saving this user.");
     }
     setSaving(false);
     setEditUser(null);
     setShowAdd(false);
-    setForm({ name: "", role: "washer", phone: "" });
+    setForm({ name: "", role: "washer", phone: "", email: "", password: "" });
+  }
+
+  async function submitPasswordReset() {
+    if (!resetTarget || resetPassword.length < 8) return;
+    setResetSaving(true);
+    const supabase = createClient();
+    try {
+      const { error } = await supabase.rpc("admin_reset_employee_password", {
+        p_user_id: resetTarget.id,
+        p_new_password: resetPassword,
+      });
+      if (error) throw error;
+      notify(`Password reset for ${resetTarget.name}.`);
+      setResetTarget(null);
+      setResetPassword("");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Could not reset password.");
+    }
+    setResetSaving(false);
   }
 
   function openEdit(s: StaffMember) {
     setEditUser(s);
-    setForm({ name: s.name, role: s.role, phone: s.phone });
+    setForm({ name: s.name, role: s.role, phone: s.phone, email: "", password: "" });
   }
 
   async function savePricing() {
@@ -289,7 +323,7 @@ export default function AdminPage() {
         <div className="rounded-2xl border border-line bg-panel overflow-hidden">
           <div className="p-5 flex items-center justify-between">
             <h3 className="font-[family-name:var(--font-display)] text-lg">Staff Management</h3>
-            <button onClick={() => { setShowAdd(true); setForm({ name: "", role: "washer", phone: "" }); }}
+            <button onClick={() => { setShowAdd(true); setForm({ name: "", role: "washer", phone: "", email: "", password: "" }); }}
               className="px-4 py-2 rounded-xl text-sm font-medium bg-accent text-[#06201D] flex items-center gap-2">
               <Plus size={16} /> Add Staff
             </button>
@@ -338,6 +372,9 @@ export default function AdminPage() {
                         <div className="flex gap-2">
                           <button onClick={() => openEdit(s)} className="px-3 py-1.5 rounded-xl text-xs bg-panel-2 border border-line flex items-center gap-1.5 text-muted hover:text-text">
                             <Pencil size={13} /> Edit
+                          </button>
+                          <button onClick={() => { setResetTarget(s); setResetPassword(""); }} className="px-3 py-1.5 rounded-xl text-xs bg-panel-2 border border-line flex items-center gap-1.5 text-muted hover:text-text">
+                            <ShieldCheck size={13} /> Reset PW
                           </button>
                           <button onClick={() => toggleActive(s.id)} className="px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5"
                             style={{ background: s.active ? "#3A1A1A" : "#123A34", color: s.active ? "var(--red)" : "var(--accent)" }}>
@@ -620,11 +657,47 @@ export default function AdminPage() {
               <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                 className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent" placeholder="+251 9x xxx xxxx" />
             </div>
+            {!editUser && (
+              <>
+                <div>
+                  <label className="text-xs uppercase tracking-wide text-muted">Login Email</label>
+                  <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                    className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent" placeholder="name@company.com" />
+                </div>
+                <div>
+                  <label className="text-xs uppercase tracking-wide text-muted">Temporary Password</label>
+                  <input type="text" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                    className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent font-[family-name:var(--font-mono)]" placeholder="min. 8 characters" />
+                  <p className="text-[11px] text-muted mt-1">Share this with the employee — they can log in immediately.</p>
+                </div>
+              </>
+            )}
             <div className="flex gap-3 pt-2">
               <button onClick={saveUser} disabled={saving} className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-accent text-[#06201D] disabled:opacity-50">
-                {saving ? "Saving…" : editUser ? "Save Changes" : "Add Staff"}
+                {saving ? "Saving…" : editUser ? "Save Changes" : "Create Login & Add Staff"}
               </button>
               <button onClick={() => { setShowAdd(false); setEditUser(null); }} className="flex-1 py-2.5 rounded-xl text-sm border border-line text-muted">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Reset Password Modal */}
+      {resetTarget && (
+        <Modal title={`Reset Password — ${resetTarget.name}`} onClose={() => setResetTarget(null)}>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs uppercase tracking-wide text-muted">New Password</label>
+              <input type="text" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)}
+                className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent font-[family-name:var(--font-mono)]" placeholder="min. 8 characters" />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={submitPasswordReset} disabled={resetSaving || resetPassword.length < 8} className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-accent text-[#06201D] disabled:opacity-50">
+                {resetSaving ? "Saving…" : "Set New Password"}
+              </button>
+              <button onClick={() => setResetTarget(null)} className="flex-1 py-2.5 rounded-xl text-sm border border-line text-muted">
                 Cancel
               </button>
             </div>

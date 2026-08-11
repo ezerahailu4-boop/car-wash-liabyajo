@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, AlertTriangle, Droplet } from "lucide-react";
 import { VEHICLE_TYPES, WASHERS } from "@/lib/mock";
 import { createClient } from "@/lib/supabase/client";
-import { uploadWashPhoto } from "@/lib/upload";
-import PhotoDropzone from "@/components/PhotoDropzone";
 
 type Washer = { id: string; name: string; soap: number };
 type LogEntry = { plate: string; vehicleName: string; washer: string; time: string; price: number };
@@ -19,9 +17,6 @@ export default function WashEntryPage() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [photoBefore, setPhotoBefore] = useState<File | null>(null);
-  const [photoAfter, setPhotoAfter] = useState<File | null>(null);
-  const [uploadingPhotos, setUploadingPhotos] = useState(false);
 
   useEffect(() => {
     async function loadWashers() {
@@ -68,17 +63,6 @@ export default function WashEntryPage() {
         .single();
       if (vErr) throw vErr;
 
-      let photoBeforeUrl: string | null = null;
-      let photoAfterUrl: string | null = null;
-      if (photoBefore || photoAfter) {
-        setUploadingPhotos(true);
-        [photoBeforeUrl, photoAfterUrl] = await Promise.all([
-          photoBefore ? uploadWashPhoto(photoBefore, "before", plate) : Promise.resolve(null),
-          photoAfter ? uploadWashPhoto(photoAfter, "after", plate) : Promise.resolve(null),
-        ]);
-        setUploadingPhotos(false);
-      }
-
       const { error: txErr } = await supabase.from("wash_transactions").insert({
         vehicle_id: vehicle.id,
         vehicle_type_id: vehicleType,
@@ -87,8 +71,6 @@ export default function WashEntryPage() {
         soap_used_ml: vt.default_soap_ml,
         status: "completed",
         completed_at: new Date().toISOString(),
-        photo_before_url: photoBeforeUrl,
-        photo_after_url: photoAfterUrl,
       });
       if (txErr) throw txErr;
 
@@ -105,8 +87,6 @@ export default function WashEntryPage() {
     setToast(`${vt.name} washed · ${vt.default_price} birr recorded · ${vt.default_soap_ml} ml deducted from ${washer.name.split(" ")[0]}`);
     setPlate("");
     setCustomer("");
-    setPhotoBefore(null);
-    setPhotoAfter(null);
     setSaving(false);
     setTimeout(() => setToast(null), 3200);
   }
@@ -186,11 +166,6 @@ export default function WashEntryPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <PhotoDropzone label="Before Photo" onFileSelected={setPhotoBefore} uploading={uploadingPhotos} />
-          <PhotoDropzone label="After Photo" onFileSelected={setPhotoAfter} uploading={uploadingPhotos} />
-        </div>
-
         <div className="flex items-center justify-between pt-2 border-t border-line">
           <p className="text-xs font-[family-name:var(--font-mono)] text-muted">
             standard {vt.standard_minutes} min
@@ -200,7 +175,7 @@ export default function WashEntryPage() {
             disabled={insufficient || !plate || saving || !washer}
             className="px-4 py-2 rounded-xl text-sm font-medium bg-accent text-[#06201D] disabled:opacity-40 disabled:pointer-events-none flex items-center gap-2"
           >
-            <CheckCircle2 size={16} /> {saving ? (uploadingPhotos ? "Uploading photos…" : "Saving…") : `Complete Wash — ${vt.default_price} birr`}
+            <CheckCircle2 size={16} /> {saving ? "Saving…" : `Complete Wash — ${vt.default_price} birr`}
           </button>
         </div>
         {toast && <div className="fade-up rounded-xl px-4 py-3 text-sm bg-[var(--accent-dim)] text-accent">{toast}</div>}

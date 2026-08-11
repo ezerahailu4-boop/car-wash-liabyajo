@@ -12,7 +12,7 @@ type QueryBuilder = {
   update: (...args: unknown[]) => QueryBuilder;
   upsert: (...args: unknown[]) => QueryBuilder;
   delete: (...args: unknown[]) => QueryBuilder;
-  then: (resolve: (value: { data: unknown[] | null }) => void) => void;
+  then: (resolve: (value: { data: unknown[] | null; error: null }) => void) => void;
 };
 
 function createFallbackQueryBuilder(data: unknown[] = []) {
@@ -28,7 +28,7 @@ function createFallbackQueryBuilder(data: unknown[] = []) {
     update: () => builder,
     upsert: () => builder,
     delete: () => builder,
-    then: (resolve) => resolve({ data }),
+    then: (resolve) => resolve({ data, error: null }),
   };
 
   return builder;
@@ -45,12 +45,7 @@ function createFallbackClient() {
       }),
     },
     from: () => createFallbackQueryBuilder(),
-    storage: {
-      from: () => ({
-        upload: async () => ({ data: null, error: { message: "Supabase is not configured (missing env vars)." } }),
-        getPublicUrl: () => ({ data: { publicUrl: "" } }),
-      }),
-    },
+    rpc: async () => ({ data: null, error: { message: "Supabase is not configured (missing env vars)." } }),
   };
 }
 
