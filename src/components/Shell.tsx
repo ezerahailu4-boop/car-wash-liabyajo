@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   LayoutGrid, Droplet, Box, Bell, Users, BarChart3,
   LogOut, ShieldCheck, Store, UserCircle, X,
-  Menu, Sun, Moon, ChevronRight,
+  Menu, Sun, Moon, ChevronRight, Receipt,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchNotifications, markNotificationRead } from "@/lib/queries";
@@ -17,6 +17,8 @@ const ALL_NAV = [
   { href: "/inventory", label: "Inventory", icon: Box, roles: ["administrator", "manager"] },
   { href: "/requests", label: "Requests", icon: Bell, roles: ["administrator", "manager"] },
   { href: "/employees", label: "Employees", icon: Users, roles: ["administrator", "manager"] },
+  { href: "/customers", label: "Customers", icon: UserCircle, roles: ["administrator", "manager"] },
+  { href: "/expenses", label: "Expenses", icon: Receipt, roles: ["administrator", "manager"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["administrator", "manager"] },
   { href: "/store", label: "Store", icon: Store, roles: ["administrator", "store_keeper"] },
   { href: "/portal", label: "My Portal", icon: UserCircle, roles: ["washer"] },

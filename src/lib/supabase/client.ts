@@ -8,7 +8,7 @@ type QueryBuilder = {
   order: (...args: unknown[]) => QueryBuilder;
   limit: (...args: unknown[]) => QueryBuilder;
   single: () => Promise<{ data: null; error: null }>;
-  insert: (...args: unknown[]) => Promise<{ data: null; error: null }>;
+  insert: (...args: unknown[]) => QueryBuilder;
   update: (...args: unknown[]) => QueryBuilder;
   upsert: (...args: unknown[]) => QueryBuilder;
   delete: (...args: unknown[]) => QueryBuilder;
@@ -24,7 +24,7 @@ function createFallbackQueryBuilder(data: unknown[] = []) {
     order: () => builder,
     limit: () => builder,
     single: async () => ({ data: null, error: null }),
-    insert: async () => ({ data: null, error: null }),
+    insert: () => builder,
     update: () => builder,
     upsert: () => builder,
     delete: () => builder,
@@ -43,6 +43,16 @@ function createFallbackClient() {
         data: { user: null, session: null },
         error: { message: "Supabase is not configured (missing env vars)." },
       }),
+      resetPasswordForEmail: async () => ({
+        data: {},
+        error: { message: "Supabase is not configured (missing env vars)." },
+      }),
+      updateUser: async () => ({
+        data: { user: null },
+        error: { message: "Supabase is not configured (missing env vars)." },
+      }),
+      getSession: async () => ({ data: { session: null }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
     },
     from: () => createFallbackQueryBuilder(),
     rpc: async () => ({ data: null, error: { message: "Supabase is not configured (missing env vars)." } }),

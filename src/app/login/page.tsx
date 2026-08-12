@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Droplet, LogIn, Loader2 } from "lucide-react";
+import { Droplet, LogIn, Loader2, Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 const ROLE_HOME: Record<string, string> = {
@@ -18,6 +18,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [resetSent, setResetSent] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,6 +53,22 @@ export default function LoginPage() {
     }
   }
 
+  async function submitForgot(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    const supabase = createClient();
+    try {
+      const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined;
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+      if (resetError) throw resetError;
+      setResetSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send reset email.");
+    }
+    setLoading(false);
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--bg)] px-4">
       <div className="w-full max-w-sm">
@@ -59,51 +77,110 @@ export default function LoginPage() {
             <Droplet size={22} className="text-white" />
           </div>
           <h1 className="font-[family-name:var(--font-display)] text-2xl text-[var(--text)]">WashOS</h1>
-          <p className="text-sm text-[var(--muted)] mt-1">Sign in to your account</p>
+          <p className="text-sm text-[var(--muted)] mt-1">
+            {mode === "login" ? "Sign in to your account" : "Reset your password"}
+          </p>
         </div>
 
-        <form onSubmit={submit} className="rounded-2xl p-6 border border-[var(--line)] bg-[var(--panel)] space-y-4">
-          <div>
-            <label className="text-xs uppercase tracking-wide text-[var(--muted)]">Email</label>
-            <input
-              type="email"
-              required
-              autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-[var(--panel-2)] border border-[var(--line)] outline-none focus:ring-2 focus:ring-[var(--accent)] text-[var(--text)]"
-            />
-          </div>
-          <div>
-            <label className="text-xs uppercase tracking-wide text-[var(--muted)]">Password</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-[var(--panel-2)] border border-[var(--line)] outline-none focus:ring-2 focus:ring-[var(--accent)] text-[var(--text)]"
-            />
-          </div>
+        {mode === "login" ? (
+          <>
+            <form onSubmit={submit} className="rounded-2xl p-6 border border-[var(--line)] bg-[var(--panel)] space-y-4">
+              <div>
+                <label className="text-xs uppercase tracking-wide text-[var(--muted)]">Email</label>
+                <input
+                  type="email"
+                  required
+                  autoFocus
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-[var(--panel-2)] border border-[var(--line)] outline-none focus:ring-2 focus:ring-[var(--accent)] text-[var(--text)]"
+                />
+              </div>
+              <div>
+                <label className="text-xs uppercase tracking-wide text-[var(--muted)]">Password</label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-[var(--panel-2)] border border-[var(--line)] outline-none focus:ring-2 focus:ring-[var(--accent)] text-[var(--text)]"
+                />
+              </div>
 
-          {error && (
-            <p className="text-xs rounded-xl px-3 py-2 bg-[var(--panel-2)] text-[var(--red)]">{error}</p>
-          )}
+              {error && (
+                <p className="text-xs rounded-xl px-3 py-2 bg-[var(--panel-2)] text-[var(--red)]">{error}</p>
+              )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 rounded-xl text-sm font-medium bg-[var(--accent)] text-[#06201D] disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
-            {loading ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 rounded-xl text-sm font-medium bg-[var(--accent)] text-[#06201D] disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
+                {loading ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
 
-        <p className="text-center text-xs text-[var(--muted)] mt-5">
-          Forgot your password? Contact an administrator.
-        </p>
+            <button
+              onClick={() => { setMode("forgot"); setError(null); setResetSent(false); }}
+              className="w-full text-center text-xs text-[var(--muted)] mt-5 hover:text-[var(--text)]"
+            >
+              Forgot your password?
+            </button>
+          </>
+        ) : (
+          <>
+            <form onSubmit={submitForgot} className="rounded-2xl p-6 border border-[var(--line)] bg-[var(--panel)] space-y-4">
+              {resetSent ? (
+                <p className="text-sm text-[var(--text)] flex items-start gap-2">
+                  <Mail size={16} className="mt-0.5 shrink-0 text-[var(--accent)]" />
+                  If an account exists for <span className="font-medium">{email}</span>, a reset link has been sent. Check your inbox.
+                </p>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs uppercase tracking-wide text-[var(--muted)]">Email</label>
+                    <input
+                      type="email"
+                      required
+                      autoFocus
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@company.com"
+                      className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-[var(--panel-2)] border border-[var(--line)] outline-none focus:ring-2 focus:ring-[var(--accent)] text-[var(--text)]"
+                    />
+                  </div>
+                  {error && (
+                    <p className="text-xs rounded-xl px-3 py-2 bg-[var(--panel-2)] text-[var(--red)]">{error}</p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-2.5 rounded-xl text-sm font-medium bg-[var(--accent)] text-[#06201D] disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {loading ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+                    {loading ? "Sending…" : "Send reset link"}
+                  </button>
+                </>
+              )}
+            </form>
+
+            <button
+              onClick={() => { setMode("login"); setError(null); setResetSent(false); }}
+              className="w-full text-center text-xs text-[var(--muted)] mt-5 hover:text-[var(--text)]"
+            >
+              Back to sign in
+            </button>
+          </>
+        )}
+
+        {mode === "login" && (
+          <p className="text-center text-xs text-[var(--muted)] mt-3">
+            An admin can also reset your password for you.
+          </p>
+        )}
       </div>
     </div>
   );

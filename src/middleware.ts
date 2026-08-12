@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC: string[] = ["/login"];
+const PUBLIC: string[] = ["/login", "/reset-password"];
 
 // What each role is allowed to access
 const ROLE_HOME: Record<string, string> = {
@@ -12,8 +12,8 @@ const ROLE_HOME: Record<string, string> = {
 };
 
 const ROLE_ALLOWED: Record<string, string[]> = {
-  administrator: ["/", "/wash", "/inventory", "/requests", "/employees", "/reports", "/store", "/portal", "/admin"],
-  manager: ["/", "/wash", "/inventory", "/requests", "/employees", "/reports"],
+  administrator: ["/", "/wash", "/inventory", "/requests", "/employees", "/customers", "/expenses", "/reports", "/store", "/portal", "/admin"],
+  manager: ["/", "/wash", "/inventory", "/requests", "/employees", "/customers", "/expenses", "/reports"],
   store_keeper: ["/store"],
   washer: ["/portal"],
 };
