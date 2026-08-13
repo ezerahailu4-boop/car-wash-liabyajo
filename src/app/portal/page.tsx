@@ -107,22 +107,24 @@ export default function PortalPage() {
     setSaving(true);
 
     const supabase = createClient();
-    try {
-      const { error } = await supabase.from("soap_requests").insert({
-        washer_id: user.id,
-        inventory_id: selectedProductId,
-        quantity_requested: requestedMl,
-        status: "pending",
-        notes: `${selectedVT.name} × ${carCount}`,
-      });
-      if (error) throw error;
-      notify(`Request sent — ${requestedMl} ml for ${carCount} × ${selectedVT.name}`);
-      setCarCount(1);
-      await load();
-    } catch {
-      notify(`Request sent (demo) — ${requestedMl} ml for ${carCount} × ${selectedVT.name}`);
-      setCarCount(1);
+    const { error } = await supabase.from("soap_requests").insert({
+      washer_id: user.id,
+      inventory_id: selectedProductId,
+      quantity_requested: requestedMl,
+      status: "pending",
+      notes: `${selectedVT.name} × ${carCount}`,
+    });
+
+    if (error) {
+      console.error("soap_requests insert failed:", error);
+      notify(`Request failed: ${error.message}`);
+      setSaving(false);
+      return;
     }
+
+    notify(`Request sent — ${requestedMl} ml for ${carCount} × ${selectedVT.name}`);
+    setCarCount(1);
+    await load();
     setSaving(false);
   }
 
