@@ -97,32 +97,45 @@ export default function EmployeeProfilePage() {
     if (carCount < 1) return;
     setSaving(true);
     const supabase = createClient();
-    try {
-      // find the main soap product in inventory
-      const { data: invList } = await supabase
-        .from("inventory").select("id, product_name").limit(10);
-      type InvRow = { id: string; product_name: string };
-      const invRows = (invList ?? []) as InvRow[];
-      const inventoryId = (invRows.find((i) =>
-        i.product_name?.toLowerCase().includes("shampoo") ||
-        i.product_name?.toLowerCase().includes("soap")
-      ) ?? invRows[0])?.id;
-      if (!inventoryId) throw new Error("no inventory");
 
-      await supabase.from("soap_requests").insert({
-        washer_id: id,
-        inventory_id: inventoryId,
-        quantity_requested: requestedMl,
-        status: "pending",
-        notes: `${selectedVT.name} × ${carCount}`,
-      });
-      notify(`Request sent — ${requestedMl} ml for ${carCount} × ${selectedVT.name}`);
-      setCarCount(1);
-      await load();
-    } catch {
-      notify(`Request sent (demo) — ${requestedMl} ml for ${carCount} × ${selectedVT.name}`);
-      setCarCount(1);
+    // find the main soap product in inventory
+    const { data: invList, error: invErr } = await supabase
+      .from("inventory").select("id, product_name").limit(10);
+    if (invErr) {
+      notify(`Request failed: ${invErr.message}`);
+      setSaving(false);
+      return;
     }
+    type InvRow = { id: string; product_name: string };
+    const invRows = (invList ?? []) as InvRow[];
+    const inventoryId = (invRows.find((i) =>
+      i.product_name?.toLowerCase().includes("shampoo") ||
+      i.product_name?.toLowerCase().includes("soap")
+    ) ?? invRows[0])?.id;
+    if (!inventoryId) {
+      notify("Request failed: no inventory product found.");
+      setSaving(false);
+      return;
+    }
+
+    const { error } = await supabase.from("soap_requests").insert({
+      washer_id: id,
+      inventory_id: inventoryId,
+      quantity_requested: requestedMl,
+      status: "pending",
+      notes: `${selectedVT.name} × ${carCount}`,
+    });
+
+    if (error) {
+      console.error("soap_requests insert failed:", error);
+      notify(`Request failed: ${error.message}`);
+      setSaving(false);
+      return;
+    }
+
+    notify(`Request sent — ${requestedMl} ml for ${carCount} × ${selectedVT.name}`);
+    setCarCount(1);
+    await load();
     setSaving(false);
   }
 
