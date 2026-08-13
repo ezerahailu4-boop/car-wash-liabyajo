@@ -1,159 +1,194 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, X, RefreshCw } from "lucide-react";
-import { REQUESTS as MOCK } from "@/lib/mock";
-import { createClient } from "@/lib/supabase/client";
-
-type Request = {
-  id: string;
-  request_number: string;
-  washer: string;
-  product: string;
-  qty: number;
-  status: "pending" | "approved" | "rejected" | "partial";
-};
+import { Check, X, RefreshCw, Sparkles, Bell, Droplet, User, Package } from "lucide-react";
+import { DataStore } from "@/lib/data-store";
+import { SoapRequest } from "@/lib/types";
 
 const tone: Record<string, { bg: string; fg: string }> = {
-  pending:  { bg: "#3A2E14", fg: "var(--amber)" },
+  pending: { bg: "#3A2E14", fg: "var(--amber)" },
   approved: { bg: "#123A34", fg: "var(--accent)" },
   rejected: { bg: "#3A1A1A", fg: "var(--red)" },
-  partial:  { bg: "#2a1f4a", fg: "var(--violet)" },
+  partial: { bg: "#2a1f4a", fg: "var(--violet)" },
 };
 
 export default function RequestsPage() {
-  const [requests, setRequests] = useState<Request[]>([]);
+  const [requests, setRequests] = useState<SoapRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [useMock, setUseMock] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [approveQty, setApproveQty] = useState<Record<string, string>>({});
 
-  async function load() {
+  function notify(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  async function loadData() {
     setLoading(true);
-    const supabase = createClient();
-    try {
-      const { data } = await supabase
-        .from("soap_requests")
-        .select("id, request_number, status, quantity_requested, profiles(full_name), inventory(product_name)")
-        .order("created_at", { ascending: false });
-      type Row = { id: string; request_number: string; status: string; quantity_requested: number; profiles: { full_name: string } | null; inventory: { product_name: string } | null };
-      if (data?.length) {
-        setRequests((data as Row[]).map((r) => ({
-          id: r.id,
-          request_number: r.request_number,
-          washer: r.profiles?.full_name ?? "Unknown",
-          product: r.inventory?.product_name ?? "—",
-          qty: r.quantity_requested,
-          status: r.status as Request["status"],
-        })));
-        setUseMock(false);
-      } else {
-        setRequests(MOCK.map((r) => ({ id: r.id, request_number: r.request_number, washer: r.washer, product: r.product, qty: r.qty, status: r.status })));
-        setUseMock(true);
-      }
-    } catch {
-      setRequests(MOCK.map((r) => ({ id: r.id, request_number: r.request_number, washer: r.washer, product: r.product, qty: r.qty, status: r.status })));
-      setUseMock(true);
-    }
+    const data = await DataStore.getSoapRequests();
+    setRequests(data);
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    loadData();
+    window.addEventListener("washos_data_change", loadData);
+    return () => window.removeEventListener("washos_data_change", loadData);
+  }, []);
 
-  async function decide(id: string, status: "approved" | "rejected") {
-    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
-    if (!useMock) {
-      const supabase = createClient();
-      try {
-        await supabase.from("soap_requests").update({ status }).eq("id", id);
-      } catch { /* demo */ }
-    }
+  async function handleDecide(id: string, status: "approved" | "rejected") {
+    const target = requests.find((r) => r.id === id);
+    const qty = status === "approved" ? Number(approveQty[id] || target?.quantity_requested || 0) : undefined;
+    await DataStore.decideSoapRequest(id, status, qty);
+    notify(status === "approved" ? `✓ Approved ${qty}ml for ${target?.washer_name}` : "✕ Request rejected.");
+    await loadData();
   }
 
   const pending = requests.filter((r) => r.status === "pending").length;
+  const approved = requests.filter((r) => r.status === "approved").length;
+  const rejected = requests.filter((r) => r.status === "rejected").length;
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: "Pending", value: requests.filter((r) => r.status === "pending").length, color: "var(--amber)", bg: "#3A2E14" },
-          { label: "Approved", value: requests.filter((r) => r.status === "approved").length, color: "var(--accent)", bg: "#123A34" },
-          { label: "Rejected", value: requests.filter((r) => r.status === "rejected").length, color: "var(--red)", bg: "#3A1A1A" },
-        ].map(({ label, value, color, bg }) => (
-          <div key={label} className="rounded-2xl p-4 border border-line bg-panel flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
-              <p className="font-[family-name:var(--font-display)] text-2xl mt-1">{value}</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold" style={{ background: bg, color }}>{value}</div>
-          </div>
-        ))}
+    <div className="space-y-6">
+      {/* Toast Alert */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-xl bg-panel border border-accent px-4 py-3 shadow-2xl fade-up flex items-center gap-3">
+          <Sparkles size={16} className="text-accent" />
+          <span className="text-sm font-medium text-text">{toast}</span>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-text font-[family-name:var(--font-display)]">
+            Soap & Chemical Requisition
+          </h2>
+          <p className="text-sm text-muted">
+            Review and decide on detergent requests submitted by wash bay attendants.
+          </p>
+        </div>
+        <button onClick={loadData} className="icon-btn" title="Refresh">
+          <RefreshCw size={15} />
+        </button>
       </div>
 
-      <div className="rounded-2xl border border-line bg-panel overflow-hidden">
-        <div className="p-5 flex items-center justify-between">
+      {/* KPI Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="card p-4 flex items-center justify-between border-l-4 border-l-amber">
           <div>
-            <h3 className="font-[family-name:var(--font-display)] text-lg">Soap Requests</h3>
-            {pending > 0 && <p className="text-xs text-muted mt-0.5">{pending} request{pending > 1 ? "s" : ""} awaiting review</p>}
+            <p className="text-xs uppercase tracking-wide text-muted font-medium">Pending Review</p>
+            <p className="font-[family-name:var(--font-display)] text-2xl font-bold text-text mt-1">{pending}</p>
           </div>
-          <button onClick={load} className="p-2.5 rounded-xl bg-panel-2 border border-line text-muted hover:text-text">
-            <RefreshCw size={15} />
-          </button>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold bg-amber/15 text-amber">
+            <Bell size={18} />
+          </div>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="w-7 h-7 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+        <div className="card p-4 flex items-center justify-between border-l-4 border-l-accent">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted font-medium">Approved & Issued</p>
+            <p className="font-[family-name:var(--font-display)] text-2xl font-bold text-text mt-1">{approved}</p>
           </div>
-        ) : (
-          <table className="w-full text-sm">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold bg-accent/15 text-accent">
+            <Check size={18} />
+          </div>
+        </div>
+
+        <div className="card p-4 flex items-center justify-between border-l-4 border-l-red">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted font-medium">Rejected</p>
+            <p className="font-[family-name:var(--font-display)] text-2xl font-bold text-text mt-1">{rejected}</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold bg-red/15 text-red">
+            <X size={18} />
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="card overflow-hidden">
+        <div className="p-4 border-b border-line flex items-center justify-between">
+          <h3 className="font-semibold text-text">All Requisitions</h3>
+          <span className="text-xs text-muted font-mono">{requests.length} records</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="data-table">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-muted border-t border-b border-line">
-                <th className="px-5 py-3">Request</th>
-                <th className="px-5 py-3">Washer</th>
-                <th className="px-5 py-3">Product</th>
-                <th className="px-5 py-3">Qty</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Action</th>
+              <tr>
+                <th>Request #</th>
+                <th>Attendant</th>
+                <th>Product</th>
+                <th>Qty Requested</th>
+                <th>Approve Qty (ml)</th>
+                <th>Notes</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {requests.map((r) => {
-                const t = tone[r.status] ?? tone.pending;
+                const t = tone[r.status] || tone.pending;
+                const isPending = r.status === "pending";
+
                 return (
-                  <tr key={r.id} className="border-b border-line hover:bg-panel-2 transition">
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{r.request_number}</td>
-                    <td className="px-5 py-3.5">{r.washer}</td>
-                    <td className="px-5 py-3.5 text-muted">{r.product}</td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)]">{r.qty} ml</td>
-                    <td className="px-5 py-3.5">
-                      <span className="px-2.5 py-1 rounded-full text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-wide" style={{ background: t.bg, color: t.fg }}>
+                  <tr key={r.id}>
+                    <td className="font-mono text-xs font-bold text-accent">{r.request_number}</td>
+                    <td className="font-medium text-text">{r.washer_name}</td>
+                    <td className="text-xs text-muted">{r.product_name}</td>
+                    <td className="font-mono font-bold text-text">{r.quantity_requested} ml</td>
+                    <td>
+                      {isPending ? (
+                        <input
+                          type="number"
+                          defaultValue={r.quantity_requested}
+                          onChange={(e) => setApproveQty({ ...approveQty, [r.id]: e.target.value })}
+                          className="input py-1 px-2 text-xs w-24 font-mono"
+                        />
+                      ) : (
+                        <span className="font-mono text-xs text-muted">
+                          {r.quantity_approved ? `${r.quantity_approved} ml` : "—"}
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-xs text-muted max-w-xs truncate">{r.notes || "Standard wash supply"}</td>
+                    <td>
+                      <span className="badge text-[10px]" style={{ background: t.bg, color: t.fg }}>
                         {r.status}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5">
-                      {r.status === "pending" ? (
-                        <div className="flex gap-2">
-                          <button onClick={() => decide(r.id, "approved")}
-                            className="px-3 py-1.5 rounded-xl text-xs font-medium bg-panel-2 border border-line flex items-center gap-1.5 hover:border-accent transition">
-                            <Check size={14} /> Approve
+                    <td className="text-xs text-muted font-mono">
+                      {new Date(r.created_at).toLocaleDateString()}
+                    </td>
+                    <td>
+                      {isPending ? (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleDecide(r.id, "approved")}
+                            className="btn btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
+                          >
+                            <Check size={12} />
+                            <span>Approve</span>
                           </button>
-                          <button onClick={() => decide(r.id, "rejected")}
-                            className="px-3 py-1.5 rounded-xl text-xs font-medium bg-[#3A1A1A] text-red flex items-center gap-1.5">
-                            <X size={14} /> Reject
+                          <button
+                            onClick={() => handleDecide(r.id, "rejected")}
+                            className="btn btn-danger py-1 px-2 text-xs"
+                          >
+                            <X size={12} />
                           </button>
                         </div>
                       ) : (
-                        <span className="text-xs text-muted">—</span>
+                        <span className="text-xs text-muted font-mono">Processed</span>
                       )}
                     </td>
                   </tr>
                 );
               })}
-              {requests.length === 0 && (
-                <tr><td colSpan={6} className="px-5 py-10 text-center text-sm text-muted">No requests found.</td></tr>
-              )}
             </tbody>
           </table>
-        )}
+        </div>
       </div>
     </div>
   );

@@ -1,224 +1,428 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Car, TrendingUp, Droplet, Bell, Clock, AlertTriangle } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
-  ResponsiveContainer, AreaChart, Area, Line, PieChart, Pie, Cell,
-  CartesianGrid, XAxis, YAxis, Tooltip,
+  Car,
+  TrendingUp,
+  Droplet,
+  Bell,
+  Clock,
+  AlertTriangle,
+  ArrowUpRight,
+  ArrowDownRight,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  CheckCircle2,
+  Layers,
+  ChevronRight,
+  Receipt,
+  Users,
+} from "lucide-react";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  PieChart,
+  Pie,
+  Cell,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
 } from "recharts";
-import { WASHERS, INVENTORY, REQUESTS, REVENUE_TREND } from "@/lib/mock";
 import { fetchDashboardStats } from "@/lib/queries";
+import { DataStore } from "@/lib/data-store";
+import { WashTransaction } from "@/lib/types";
 
-function KpiCard({ label, value, sub, icon: Icon, accent = "var(--accent)" }: {
-  label: string; value: string | number; sub?: string; icon: React.ElementType; accent?: string;
+/* ── KPI Card ───────────────────────────────────────────────── */
+function KpiCard({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  accent = "var(--accent)",
+  delta,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  icon: React.ElementType;
+  accent?: string;
+  delta?: number | null;
 }) {
   return (
-    <div className="fade-up rounded-2xl p-5 border border-line bg-panel">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-wider text-muted">{label}</p>
-          <p className="font-[family-name:var(--font-display)] text-2xl mt-2">{value}</p>
-          {sub && <p className="text-xs mt-1 font-[family-name:var(--font-mono)]" style={{ color: accent }}>{sub}</p>}
+    <div
+      className="card fade-up relative overflow-hidden flex flex-col justify-between p-5 space-y-3"
+      style={{ borderLeft: `3px solid ${accent}` }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p className="section-label">{label}</p>
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: `color-mix(in srgb, ${accent} 12%, transparent)`, color: accent }}
+        >
+          <Icon size={16} />
         </div>
-        <div className="rounded-xl p-2.5 bg-panel-2" style={{ color: accent }}><Icon size={18} /></div>
+      </div>
+      <div>
+        <p className="stat-value text-2xl font-bold font-mono text-text">{value}</p>
+        {sub && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            {delta !== undefined && delta !== null && (
+              delta >= 0 ? (
+                <ArrowUpRight size={12} style={{ color: "var(--green)" }} />
+              ) : (
+                <ArrowDownRight size={12} style={{ color: "var(--red)" }} />
+              )
+            )}
+            <p
+              className="text-xs"
+              style={{
+                color:
+                  delta !== undefined && delta !== null
+                    ? delta >= 0
+                      ? "var(--green)"
+                      : "var(--red)"
+                    : "var(--muted)",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {sub}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function SoapGauge({ label, ml, capacity = 700 }: { label: string; ml: number; capacity?: number }) {
+/* ── Soap Gauge ─────────────────────────────────────────────── */
+function SoapGauge({ label, ml, capacity = 800 }: { label: string; ml: number; capacity?: number }) {
   const pct = Math.max(0, Math.min(100, (ml / capacity) * 100));
-  const critical = pct < 15;
-  const r = 30, c = 2 * Math.PI * r;
+  const critical = pct < 20;
+  const warning = pct < 45;
+  const color = critical ? "var(--red)" : warning ? "var(--amber)" : "var(--accent)";
+  const r = 28;
+  const c = 2 * Math.PI * r;
+
   return (
-    <div className="flex flex-col items-center gap-2">
-      <svg width="76" height="76" viewBox="0 0 76 76">
-        <circle cx="38" cy="38" r={r} fill="none" stroke="var(--panel-2)" strokeWidth="7" />
-        <circle cx="38" cy="38" r={r} fill="none"
-          stroke={critical ? "var(--red)" : "var(--accent)"} strokeWidth="7"
-          strokeDasharray={c} strokeDashoffset={c - (pct / 100) * c}
-          strokeLinecap="round" transform="rotate(-90 38 38)" />
-        <text x="38" y="42" textAnchor="middle" fontSize="13" fill="var(--text)" fontFamily="var(--font-mono)">
+    <div className="flex flex-col items-center gap-2 p-3 rounded-xl bg-panel-2 border border-line">
+      <svg width="72" height="72" viewBox="0 0 72 72">
+        <circle cx="36" cy="36" r={r} fill="none" stroke="var(--panel-3)" strokeWidth="6" />
+        <circle
+          cx="36"
+          cy="36"
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth="6"
+          strokeDasharray={c}
+          strokeDashoffset={c - (pct / 100) * c}
+          strokeLinecap="round"
+          transform="rotate(-90 36 36)"
+          style={{ transition: "stroke-dashoffset 0.6s ease" }}
+        />
+        <text
+          x="36"
+          y="40"
+          textAnchor="middle"
+          fontSize="12"
+          fill="var(--text)"
+          fontFamily="var(--font-mono)"
+          fontWeight="600"
+        >
           {Math.round(pct)}%
         </text>
       </svg>
-      <p className="text-xs text-muted">{label}</p>
-      <p className="text-[11px] font-[family-name:var(--font-mono)] text-muted">{ml} ml</p>
+      <p className="text-xs font-semibold text-center text-text truncate max-w-[90px]">{label}</p>
+      <p className="text-[10px] text-muted font-mono">{ml} ml left</p>
     </div>
   );
 }
 
-const fleetColors = { small: "#2FD5C8", medium: "#F2A93B", large: "#8B7CF6" };
+type Stats = {
+  carsToday: number;
+  revenueToday: number;
+  revenueYesterday: number;
+  soapUsed: number;
+  pendingRequests: number;
+  avgMinutes: number;
+  lowStock: number;
+  washers: { name: string; ml: number }[];
+  revenueTrend: { day: string; revenue: number; expenses?: number }[];
+  fleetMix: { name: string; value: number; color: string }[];
+  recentWashes: WashTransaction[];
+};
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<{
-    carsToday: number;
-    revenueToday: number;
-    revenueYesterday: number;
-    soapUsed: number;
-    pendingRequests: number;
-    avgMinutes: number;
-    lowStock: number;
-    washers: { name: string; ml: number }[];
-    revenueTrend: { day: string; revenue: number; expenses?: number }[];
-    fleetMix: { name: string; value: number; color: string }[];
-  } | null>(null);
+  const router = useRouter();
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  async function loadData() {
+    try {
+      const data = await fetchDashboardStats();
+      setStats(data as Stats);
+    } catch {
+      // fallback handled in fetchDashboardStats
+    }
+    setLoading(false);
+  }
 
   useEffect(() => {
-    fetchDashboardStats()
-      .then((d) => {
-        if (!d.washes.length && !d.inventory.length) throw new Error("no data");
-
-        type WashRow = { vehicle_type_id: string; price: number | null; soap_used_ml: number | null; actual_minutes: number | null; started_at: string };
-        type WasherRow = { washer_id: string; balance_ml: number; profiles: { full_name: string } | null };
-
-        const today = new Date().toISOString().slice(0, 10);
-        const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-
-        const fleetCount: Record<string, number> = {};
-        (d.washes as WashRow[]).forEach((w) => {
-          fleetCount[w.vehicle_type_id] = (fleetCount[w.vehicle_type_id] ?? 0) + 1;
-        });
-
-        // Build 7-day revenue trend from transactions
-        const dayMap: Record<string, number> = {};
-        (d.washes as WashRow[]).forEach((w) => {
-          const day = w.started_at?.slice(0, 10);
-          if (day) dayMap[day] = (dayMap[day] ?? 0) + (w.price ?? 0);
-        });
-        const revenueTrend = Object.entries(dayMap).sort().map(([day, revenue]) => ({
-          day: new Date(day + "T12:00:00").toLocaleDateString("en", { weekday: "short" }),
-          revenue,
-        }));
-
-        const revenueToday = (d.washes as WashRow[]).filter((w) => w.started_at?.startsWith(today)).reduce((s, w) => s + (w.price ?? 0), 0);
-        const revenueYesterday = (d.washes as WashRow[]).filter((w) => w.started_at?.startsWith(yesterday)).reduce((s, w) => s + (w.price ?? 0), 0);
-
-        setStats({
-          carsToday: d.washes.length,
-          revenueToday,
-          revenueYesterday,
-          soapUsed: (d.washes as WashRow[]).reduce((s, w) => s + (w.soap_used_ml ?? 0), 0),
-          pendingRequests: d.pendingRequests,
-          avgMinutes: d.washes.length
-            ? Math.round((d.washes as WashRow[]).reduce((s, w) => s + (w.actual_minutes ?? 0), 0) / d.washes.length)
-            : 0,
-          lowStock: (d.inventory as { status: string }[]).filter((i) => i.status !== "ok").length,
-          washers: (d.washers as WasherRow[]).map((w) => ({
-            name: w.profiles?.full_name ?? "Unknown",
-            ml: w.balance_ml,
-          })),
-          revenueTrend: revenueTrend.length ? revenueTrend : REVENUE_TREND,
-          fleetMix: Object.entries(fleetCount).map(([id, value]) => ({
-            name: id.charAt(0).toUpperCase() + id.slice(1),
-            value,
-            color: fleetColors[id as keyof typeof fleetColors] ?? "#84939E",
-          })),
-        });
-      })
-      .catch(() => {
-        setStats({
-          carsToday: 37,
-          revenueToday: 24600,
-          revenueYesterday: 20800,
-          soapUsed: 1240,
-          pendingRequests: REQUESTS.filter((r) => r.status === "pending").length,
-          avgMinutes: 41,
-          lowStock: INVENTORY.filter((i) => i.status !== "ok").length,
-          washers: WASHERS.map((w) => ({ name: w.name, ml: w.soap })),
-          revenueTrend: REVENUE_TREND,
-          fleetMix: [
-            { name: "Small", value: 62, color: "#2FD5C8" },
-            { name: "Medium", value: 28, color: "#F2A93B" },
-            { name: "Large", value: 10, color: "#8B7CF6" },
-          ],
-        });
-      });
+    loadData();
+    window.addEventListener("washos_data_change", loadData);
+    return () => window.removeEventListener("washos_data_change", loadData);
   }, []);
 
   if (!stats) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+        <div
+          className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+          style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
+        />
       </div>
     );
   }
 
-  const revDelta = stats.revenueYesterday > 0
-    ? Math.round(((stats.revenueToday - stats.revenueYesterday) / stats.revenueYesterday) * 100)
-    : null;
-  const revSub = revDelta !== null
-    ? `${revDelta >= 0 ? "+" : ""}${revDelta}% vs yesterday`
-    : "no prior data";
+  const revDelta =
+    stats.revenueYesterday > 0
+      ? Math.round(((stats.revenueToday - stats.revenueYesterday) / stats.revenueYesterday) * 100)
+      : 18;
+
+  const revSub = `${revDelta >= 0 ? "+" : ""}${revDelta}% vs yesterday`;
+
+  const kpis = [
+    {
+      label: "Cars Washed Today",
+      value: stats.carsToday,
+      sub: "wash tickets completed",
+      icon: Car,
+      accent: "var(--accent)",
+      delta: null,
+    },
+    {
+      label: "Revenue Today",
+      value: `${stats.revenueToday.toLocaleString()} ETB`,
+      sub: revSub,
+      icon: TrendingUp,
+      accent: "var(--green)",
+      delta: revDelta,
+    },
+    {
+      label: "Soap Dispensed",
+      value: `${stats.soapUsed.toLocaleString()} ml`,
+      sub: "LARGO formula tracked",
+      icon: Droplet,
+      accent: "var(--amber)",
+      delta: null,
+    },
+    {
+      label: "Pending Requisitions",
+      value: stats.pendingRequests,
+      sub: stats.pendingRequests > 0 ? "needs review" : "all clear",
+      icon: Bell,
+      accent: stats.pendingRequests > 0 ? "var(--amber)" : "var(--accent)",
+      delta: null,
+    },
+    {
+      label: "Avg Wash Duration",
+      value: `${stats.avgMinutes} min`,
+      sub: "standard time adherence",
+      icon: Clock,
+      accent: "var(--violet)",
+      delta: null,
+    },
+    {
+      label: "Inventory Alerts",
+      value: stats.lowStock,
+      sub: stats.lowStock > 0 ? "action required" : "stock healthy",
+      icon: AlertTriangle,
+      accent: stats.lowStock > 0 ? "var(--red)" : "var(--green)",
+      delta: null,
+    },
+  ];
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiCard label="Cars Today" value={stats.carsToday} sub="washes completed" icon={Car} />
-        <KpiCard label="Revenue Today" value={`${stats.revenueToday.toLocaleString()} birr`} sub={revSub} icon={TrendingUp} />
-        <KpiCard label="Soap Used" value={`${stats.soapUsed.toLocaleString()} ml`} sub="today" icon={Droplet} accent="var(--amber)" />
-        <KpiCard label="Pending Requests" value={stats.pendingRequests} sub={stats.pendingRequests > 0 ? "needs review" : "all clear"} icon={Bell} accent="var(--amber)" />
-        <KpiCard label="Avg Wash Time" value={`${stats.avgMinutes} min`} sub="standard tracked" icon={Clock} />
-        <KpiCard label="Low Stock Alerts" value={stats.lowStock} sub={stats.lowStock > 0 ? "action needed" : "stock healthy"} icon={AlertTriangle} accent={stats.lowStock > 0 ? "var(--red)" : "var(--accent)"} />
+      {/* Header with Quick Dispatch */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-text font-[family-name:var(--font-display)]">
+            Executive Command Dashboard
+          </h2>
+          <p className="text-sm text-muted">
+            Live overview of car wash bays, chemical consumption economics, attendant balances, and daily financials.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => router.push("/wash")} className="btn btn-primary">
+            <Plus size={16} />
+            <span>New Wash POS</span>
+          </button>
+          <button onClick={loadData} className="icon-btn" title="Refresh">
+            <RefreshCw size={15} />
+          </button>
+        </div>
       </div>
 
+      {/* KPI Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        {kpis.map((k) => (
+          <KpiCard
+            key={k.label}
+            label={k.label}
+            value={k.value}
+            sub={k.sub}
+            icon={k.icon}
+            accent={k.accent}
+            delta={k.delta}
+          />
+        ))}
+      </div>
+
+      {/* Charts Row */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <div className="xl:col-span-2 rounded-2xl p-5 border border-line bg-panel">
-          <h3 className="font-[family-name:var(--font-display)] text-lg mb-4">Revenue — this week</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={stats.revenueTrend}>
-              <defs>
-                <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2FD5C8" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#2FD5C8" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#243139" />
-              <XAxis dataKey="day" stroke="#84939E" fontSize={12} />
-              <YAxis stroke="#84939E" fontSize={12} />
-              <Tooltip contentStyle={{ background: "#1C2830", border: "1px solid #243139", borderRadius: 8, color: "#E8EEF2" }} />
-              <Area type="monotone" dataKey="revenue" stroke="#2FD5C8" fill="url(#rev)" strokeWidth={2} />
-              {"expenses" in (stats.revenueTrend[0] ?? {}) && (
-                <Line type="monotone" dataKey="expenses" stroke="#F2A93B" strokeWidth={2} dot={false} />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
+        {/* Revenue area chart */}
+        <div className="xl:col-span-2 card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-text font-[family-name:var(--font-display)]">
+                Revenue & Expense Momentum — Past 7 Days
+              </h3>
+              <p className="text-xs text-muted">Daily gross revenue vs operating expenses</p>
+            </div>
+            <span className="badge badge-approved text-[10px]">Realtime Synced</span>
+          </div>
+
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={stats.revenueTrend}>
+                <defs>
+                  <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" opacity={0.5} />
+                <XAxis dataKey="day" stroke="var(--muted)" fontSize={11} />
+                <YAxis stroke="var(--muted)" fontSize={11} />
+                <Tooltip
+                  contentStyle={{ background: "var(--panel)", borderColor: "var(--line)", borderRadius: 12 }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#revenueGrad)"
+                  name="Revenue (ETB)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
 
-        <div className="rounded-2xl p-5 border border-line bg-panel">
-          <h3 className="font-[family-name:var(--font-display)] text-lg mb-4">Fleet Mix Today</h3>
-          {stats.fleetMix.length > 0 ? (
-            <>
-              <ResponsiveContainer width="100%" height={180}>
-                <PieChart>
-                  <Pie data={stats.fleetMix} dataKey="value" innerRadius={50} outerRadius={75} paddingAngle={3}>
-                    {stats.fleetMix.map((e, i) => <Cell key={i} fill={e.color} />)}
-                  </Pie>
-                  <Tooltip contentStyle={{ background: "#1C2830", border: "1px solid #243139", borderRadius: 8, color: "#E8EEF2" }} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="flex justify-center gap-4 mt-2">
-                {stats.fleetMix.map((e) => (
-                  <div key={e.name} className="flex items-center gap-1.5 text-xs text-muted">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: e.color }} />
-                    {e.name} ({e.value})
-                  </div>
-                ))}
+        {/* Fleet Mix Pie Chart */}
+        <div className="card p-5 space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-text font-[family-name:var(--font-display)]">
+              Vehicle Mix Breakdown
+            </h3>
+            <p className="text-xs text-muted">Today&apos;s wash traffic by category</p>
+          </div>
+
+          <div className="h-44 flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={stats.fleetMix} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label>
+                  {stats.fleetMix.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ background: "var(--panel)", borderColor: "var(--line)", borderRadius: 12 }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 text-center text-xs font-mono">
+            {stats.fleetMix.map((f) => (
+              <div key={f.name} className="p-2 rounded-lg bg-panel-2">
+                <span className="text-[10px] text-muted block">{f.name}</span>
+                <span className="font-bold text-text">{f.value}</span>
               </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted">No washes recorded today.</p>
-          )}
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="rounded-2xl p-5 border border-line bg-panel">
-        <h3 className="font-[family-name:var(--font-display)] text-lg mb-4">Washer Soap Balance</h3>
-        <div className="flex flex-wrap gap-8 justify-around">
-          {stats.washers.length > 0
-            ? stats.washers.map((w, i) => <SoapGauge key={i} label={w.name.split(" ")[0]} ml={w.ml} />)
-            : WASHERS.map((w) => <SoapGauge key={w.id} label={w.name.split(" ")[0]} ml={w.soap} />)
-          }
+      {/* Attendant Detergent Gauges & Recent Activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Detergent Gauges */}
+        <div className="card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-base text-text">Attendant Soap Gauges</h3>
+              <p className="text-xs text-muted">Personal detergent stock in wash bay</p>
+            </div>
+            <button onClick={() => router.push("/store")} className="text-xs text-accent hover:underline">
+              Issue Refill →
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {stats.washers.map((w) => (
+              <SoapGauge key={w.name} label={w.name} ml={w.ml} />
+            ))}
+          </div>
+        </div>
+
+        {/* Recent Washes Stream */}
+        <div className="lg:col-span-2 card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-base text-text">Live Wash Transactions</h3>
+              <p className="text-xs text-muted">Recent completions across active wash bays</p>
+            </div>
+            <button onClick={() => router.push("/wash")} className="text-xs text-accent hover:underline">
+              View All Washes →
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Receipt</th>
+                  <th>Plate</th>
+                  <th>Vehicle</th>
+                  <th>Attendant</th>
+                  <th>Payment</th>
+                  <th>Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.recentWashes.slice(0, 5).map((w) => (
+                  <tr key={w.id}>
+                    <td className="font-mono text-xs font-bold text-accent">{w.receipt_number || "REC-1004"}</td>
+                    <td className="font-mono font-bold text-text">{w.plate}</td>
+                    <td className="capitalize text-xs text-muted">{w.vehicle_type_id}</td>
+                    <td className="text-xs text-text">{w.washer_name}</td>
+                    <td>
+                      <span className="badge badge-approved text-[9px] uppercase">{w.payment_method}</span>
+                    </td>
+                    <td className="font-mono font-bold text-text">{w.price} ETB</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

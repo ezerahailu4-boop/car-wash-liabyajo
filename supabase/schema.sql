@@ -1,12 +1,18 @@
--- WashOS Car Wash ERP — core schema
--- Run in Supabase SQL editor. Assumes auth.users already exists (Supabase Auth).
+-- WashOS Car Wash ERP — Core Schema
+-- Run in Supabase SQL editor.
 
 create extension if not exists "pgcrypto";
+create extension if not exists "uuid-ossp";
 
 -- ---------- Roles ----------
-create type user_role as enum ('administrator', 'manager', 'store_keeper', 'washer');
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'user_role') then
+    create type user_role as enum ('administrator', 'manager', 'store_keeper', 'washer');
+  end if;
+end $$;
 
-create table profiles (
+create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null,
   phone text,
@@ -18,9 +24,8 @@ create table profiles (
 
 -- ---------- Vehicle types & washing standards ----------
 -- Standards sourced from "Vehicle Car Wash Service — Detergent Consumption Standard"
--- (Maintenance and Production Division, May 2026). Approved detergent: LARGO,
--- 5L = ETB 940 (ETB 188/L).
-create table vehicle_types (
+-- Approved detergent: LARGO, 5L = ETB 940 (ETB 188/L).
+create table if not exists vehicle_types (
   id text primary key,              -- 'small' | 'medium' | 'large'
   name text not null,
   examples text,
@@ -32,20 +37,55 @@ create table vehicle_types (
   notes text
 );
 
-insert into vehicle_types (id, name, examples, standard_minutes, workers_required, default_soap_ml, detergent_cost_etb, default_price) values
+insert into vehicle_types (id, name, examples, standard_minutes, workers_required, default_soap_ml, detergent_cost_etb, default_price)
+values
   ('small', 'Light Vehicle', 'Automobile, Minibus, Pickup', 45, 2, 180, 33.84, 350),
   ('medium', 'Medium Vehicle', 'Sino Truck, Isuzu, Mid Bus', 120, 2, 250, 47.00, 900),
-  ('large', 'Heavy Vehicle', 'Trailer', 180, 2, 500, 94.00, 1800);
+  ('large', 'Heavy Vehicle', 'Trailer', 180, 2, 500, 94.00, 1800)
+on conflict (id) do update
+  set name = excluded.name,
+      examples = excluded.examples,
+      standard_minutes = excluded.standard_minutes,
+      workers_required = excluded.workers_required,
+      default_soap_ml = excluded.default_soap_ml,
+      detergent_cost_etb = excluded.detergent_cost_etb,
+      default_price = excluded.default_price;
 
--- ---------- Customers & vehicles ----------
-create table customers (
-  id uuid primary key default gen_random_uuid(),
+-- ---------- Wash Services & Add-ons ----------
+create table if not exists wash_services (
+  id text primary key,
   name text not null,
-  phone text,
+  category text not null default 'standard', -- standard | addon | detailing
+  description text,
+  price_small numeric not null default 0,
+  price_medium numeric not null default 0,
+  price_large numeric not null default 0,
+  extra_soap_ml numeric not null default 0,
+  active boolean not null default true,
   created_at timestamptz not null default now()
 );
 
-create table vehicles (
+insert into wash_services (id, name, category, description, price_small, price_medium, price_large, extra_soap_ml)
+values
+  ('exterior', 'Standard Exterior Wash', 'standard', 'High-pressure foam wash, wheel clean, hand dry', 350, 900, 1800, 0),
+  ('full_wash', 'Full Wash (Body + Engine + Underbody)', 'standard', 'Full body shampoo, undercarriage degrease, engine bay wash', 550, 1400, 2600, 80),
+  ('engine_steam', 'Engine Steam Clean', 'addon', 'High-temp degreasing and electronic component care', 250, 450, 700, 50),
+  ('interior_detail', 'Interior Deep Clean & Vacuum', 'addon', 'Seat extraction, dashboard UV protectant, carpet shampoo', 300, 600, 900, 40),
+  ('wax_polish', 'Hand Wax & Paint Sealant', 'addon', 'Carnuba wax coating for gloss finish and water repellency', 350, 700, 1100, 30),
+  ('tire_shine', 'Tire & Trim Dressing', 'addon', 'Silicone-free deep black tire shine and UV protection', 100, 200, 300, 20)
+on conflict (id) do nothing;
+
+-- ---------- Customers & Vehicles ----------
+create table if not exists customers (
+  id uuid primary key default gen_random_uuid(),
+  full_name text not null,
+  phone text,
+  notes text,
+  created_by uuid references profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists vehicles (
   id uuid primary key default gen_random_uuid(),
   plate text not null unique,
   customer_id uuid references customers(id) on delete set null,
@@ -53,17 +93,31 @@ create table vehicles (
   created_at timestamptz not null default now()
 );
 
--- ---------- Store inventory ----------
-create table inventory (
+-- ---------- Suppliers ----------
+create table if not exists suppliers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  contact text not null,
+  email text,
+  products text,
+  address text,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- ---------- Store Inventory ----------
+create table if not exists inventory (
   id uuid primary key default gen_random_uuid(),
   product_name text not null,
   category text not null,
   total_ml numeric not null default 0,      -- current remaining stock, in ml
   min_stock_ml numeric not null default 0,
   supplier text,
+  supplier_id uuid references suppliers(id) on delete set null,
   batch_number text,
   purchase_date date,
   expiry_date date,
+  unit_cost numeric,
   cost numeric,
   status text generated always as (
     case
@@ -75,18 +129,38 @@ create table inventory (
   updated_at timestamptz not null default now()
 );
 
-create table inventory_movements (
+create table if not exists inventory_movements (
   id uuid primary key default gen_random_uuid(),
   inventory_id uuid not null references inventory(id) on delete cascade,
   change_ml numeric not null,               -- positive = received, negative = issued
-  reason text not null,                     -- 'purchase' | 'issue' | 'adjustment'
-  reference_id uuid,                        -- soap_requests.id or wash_transactions.id
+  reason text not null,                     -- 'purchase' | 'issue' | 'adjustment' | 'spillage'
+  reference_id uuid,                        -- soap_requests.id, wash_transactions.id, or purchase_orders.id
   created_by uuid references profiles(id),
   created_at timestamptz not null default now()
 );
 
--- ---------- Washer personal stock ----------
-create table washer_inventory (
+-- ---------- Purchase Orders ----------
+create sequence if not exists po_seq start 1001;
+
+create table if not exists purchase_orders (
+  id uuid primary key default gen_random_uuid(),
+  po_number text not null unique default ('PO-' || to_char(nextval('po_seq'), 'FM0000')),
+  supplier_id uuid references suppliers(id) on delete set null,
+  supplier_name text not null,
+  inventory_id uuid references inventory(id) on delete set null,
+  product_name text not null,
+  qty_ml numeric not null,
+  unit_cost numeric not null default 0,
+  total_cost numeric generated always as (qty_ml * unit_cost) stored,
+  status text not null default 'pending', -- pending | received | cancelled
+  ordered_at timestamptz not null default now(),
+  received_at timestamptz,
+  notes text,
+  created_by uuid references profiles(id)
+);
+
+-- ---------- Washer Personal Stock ----------
+create table if not exists washer_inventory (
   id uuid primary key default gen_random_uuid(),
   washer_id uuid not null references profiles(id) on delete cascade,
   inventory_id uuid not null references inventory(id) on delete cascade,
@@ -94,12 +168,17 @@ create table washer_inventory (
   unique (washer_id, inventory_id)
 );
 
--- ---------- Soap requests ----------
-create type request_status as enum ('pending', 'approved', 'rejected', 'partial');
+-- ---------- Soap Requests ----------
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'request_status') then
+    create type request_status as enum ('pending', 'approved', 'rejected', 'partial');
+  end if;
+end $$;
 
-create sequence soap_request_seq start 1000;
+create sequence if not exists soap_request_seq start 1000;
 
-create table soap_requests (
+create table if not exists soap_requests (
   id uuid primary key default gen_random_uuid(),
   request_number text not null unique default ('RQ-' || to_char(nextval('soap_request_seq'), 'FM0000')),
   washer_id uuid not null references profiles(id),
@@ -107,34 +186,47 @@ create table soap_requests (
   quantity_requested numeric not null,
   quantity_approved numeric,
   status request_status not null default 'pending',
+  notes text,
   approved_by uuid references profiles(id),
   created_at timestamptz not null default now(),
   decided_at timestamptz
 );
 
--- ---------- Wash transactions ----------
-create type wash_status as enum ('in_progress', 'completed', 'cancelled');
+-- ---------- Wash Transactions ----------
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'wash_status') then
+    create type wash_status as enum ('queued', 'in_progress', 'completed', 'cancelled');
+  end if;
+end $$;
 
-create table wash_transactions (
+create sequence if not exists receipt_seq start 10001;
+
+create table if not exists wash_transactions (
   id uuid primary key default gen_random_uuid(),
+  receipt_number text not null unique default ('REC-' || to_char(nextval('receipt_seq'), 'FM00000')),
   vehicle_id uuid not null references vehicles(id),
   vehicle_type_id text not null references vehicle_types(id),
   washer_id uuid not null references profiles(id),
   price numeric not null,
   soap_used_ml numeric not null,
+  payment_method text not null default 'cash', -- cash | telebirr | cbe_birr | card | account
+  payment_status text not null default 'paid',  -- paid | unpaid
+  services jsonb default '[]'::jsonb,
+  bay_number int default 1,
   photo_before_url text,
   photo_after_url text,
   remarks text,
   status wash_status not null default 'completed',
   started_at timestamptz not null default now(),
-  completed_at timestamptz,
+  completed_at timestamptz default now(),
   actual_minutes int
 );
 
--- ---------- Finance ----------
-create table expenses (
+-- ---------- Finance / Expenses ----------
+create table if not exists expenses (
   id uuid primary key default gen_random_uuid(),
-  category text not null,             -- payroll | maintenance | utilities | inventory_cost | other
+  category text not null,             -- payroll | maintenance | utilities | inventory_cost | rent | other
   amount numeric not null,
   description text,
   incurred_on date not null default current_date,
@@ -142,8 +234,8 @@ create table expenses (
   created_at timestamptz not null default now()
 );
 
--- ---------- Notifications & audit ----------
-create table notifications (
+-- ---------- Notifications & Audit ----------
+create table if not exists notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references profiles(id) on delete cascade,
   type text not null,
@@ -152,7 +244,7 @@ create table notifications (
   created_at timestamptz not null default now()
 );
 
-create table audit_logs (
+create table if not exists audit_logs (
   id uuid primary key default gen_random_uuid(),
   actor_id uuid references profiles(id),
   action text not null,
@@ -163,19 +255,23 @@ create table audit_logs (
 );
 
 -- ---------- Indexes ----------
-create index on wash_transactions (washer_id, started_at);
-create index on wash_transactions (vehicle_type_id);
-create index on soap_requests (status);
-create index on inventory_movements (inventory_id, created_at);
-create index on vehicles (plate);
+create index if not exists idx_wash_washer_started on wash_transactions (washer_id, started_at);
+create index if not exists idx_wash_vehicle_type on wash_transactions (vehicle_type_id);
+create index if not exists idx_soap_requests_status on soap_requests (status);
+create index if not exists idx_inventory_movements on inventory_movements (inventory_id, created_at);
+create index if not exists idx_vehicles_plate on vehicles (plate);
+create index if not exists idx_po_status on purchase_orders (status);
 
 -- ---------- Row Level Security ----------
 alter table profiles enable row level security;
 alter table vehicle_types enable row level security;
+alter table wash_services enable row level security;
 alter table customers enable row level security;
 alter table vehicles enable row level security;
+alter table suppliers enable row level security;
 alter table inventory enable row level security;
 alter table inventory_movements enable row level security;
+alter table purchase_orders enable row level security;
 alter table washer_inventory enable row level security;
 alter table soap_requests enable row level security;
 alter table wash_transactions enable row level security;
@@ -183,48 +279,52 @@ alter table expenses enable row level security;
 alter table notifications enable row level security;
 alter table audit_logs enable row level security;
 
--- helper: current user's role
+-- Role Helper
 create or replace function current_role_name() returns user_role
 language sql stable as $$
-  select role from profiles where id = auth.uid()
+  select coalesce(role, 'washer'::user_role) from profiles where id = auth.uid()
 $$;
 
--- profiles: everyone can read active staff; only admins write
+-- RLS Policies
 create policy "profiles_select" on profiles for select using (true);
 create policy "profiles_admin_write" on profiles for all using (current_role_name() = 'administrator');
 
--- vehicle_types: readable by all authenticated, editable by admin
 create policy "vehicle_types_select" on vehicle_types for select using (auth.role() = 'authenticated');
 create policy "vehicle_types_admin_write" on vehicle_types for insert with check (current_role_name() = 'administrator');
 create policy "vehicle_types_admin_update" on vehicle_types for update using (current_role_name() = 'administrator');
 
--- customers & vehicles: readable by all staff, writable by washer/manager/admin
-create policy "customers_all_select" on customers for select using (auth.role() = 'authenticated');
-create policy "customers_staff_write" on customers for insert with check (current_role_name() in ('administrator','manager','washer'));
-create policy "vehicles_all_select" on vehicles for select using (auth.role() = 'authenticated');
-create policy "vehicles_staff_write" on vehicles for insert with check (current_role_name() in ('administrator','manager','washer'));
+create policy "wash_services_select" on wash_services for select using (auth.role() = 'authenticated');
+create policy "wash_services_admin_write" on wash_services for all using (current_role_name() = 'administrator');
 
--- inventory: store keeper + admin manage; all staff can read
+create policy "customers_all_select" on customers for select using (auth.role() = 'authenticated');
+create policy "customers_staff_write" on customers for all using (current_role_name() in ('administrator','manager','washer'));
+
+create policy "vehicles_all_select" on vehicles for select using (auth.role() = 'authenticated');
+create policy "vehicles_staff_write" on vehicles for all using (current_role_name() in ('administrator','manager','washer'));
+
+create policy "suppliers_select" on suppliers for select using (auth.role() = 'authenticated');
+create policy "suppliers_write" on suppliers for all using (current_role_name() in ('administrator','store_keeper','manager'));
+
 create policy "inventory_select" on inventory for select using (auth.role() = 'authenticated');
 create policy "inventory_write" on inventory for all using (current_role_name() in ('administrator','store_keeper'));
 
 create policy "inv_move_select" on inventory_movements for select using (auth.role() = 'authenticated');
 create policy "inv_move_write" on inventory_movements for insert with check (current_role_name() in ('administrator','store_keeper'));
 
--- washer_inventory: washer sees own, store keeper/admin see all
+create policy "purchase_orders_select" on purchase_orders for select using (auth.role() = 'authenticated');
+create policy "purchase_orders_write" on purchase_orders for all using (current_role_name() in ('administrator','store_keeper','manager'));
+
 create policy "washer_inv_select_own" on washer_inventory for select using (
   washer_id = auth.uid() or current_role_name() in ('administrator','store_keeper','manager')
 );
 create policy "washer_inv_write" on washer_inventory for all using (current_role_name() in ('administrator','store_keeper'));
 
--- soap_requests: washer creates/sees own; store keeper/admin see & decide all
 create policy "requests_select" on soap_requests for select using (
   washer_id = auth.uid() or current_role_name() in ('administrator','store_keeper','manager')
 );
 create policy "requests_insert_own" on soap_requests for insert with check (washer_id = auth.uid());
 create policy "requests_decide" on soap_requests for update using (current_role_name() in ('administrator','store_keeper'));
 
--- wash_transactions: washer creates own; everyone with a role can read (for dashboards)
 create policy "wash_select" on wash_transactions for select using (auth.role() = 'authenticated');
 create policy "wash_insert_own" on wash_transactions for insert with check (
   washer_id = auth.uid() or current_role_name() in ('administrator','manager')
@@ -233,58 +333,61 @@ create policy "wash_update_own_or_admin" on wash_transactions for update using (
   washer_id = auth.uid() or current_role_name() in ('administrator','manager')
 );
 
--- expenses: manager/admin only
 create policy "expenses_rw" on expenses for all using (current_role_name() in ('administrator','manager'));
-
--- notifications: user sees own
 create policy "notif_select_own" on notifications for select using (user_id = auth.uid());
 create policy "notif_update_own" on notifications for update using (user_id = auth.uid());
-
--- audit logs: admin/manager read only, system inserts via service role
 create policy "audit_select" on audit_logs for select using (current_role_name() in ('administrator','manager'));
 
--- ---------- Automation: deduct soap + record revenue on wash completion ----------
+-- ---------- Automation: Deduct soap on wash completion (INSERT or UPDATE) ----------
 create or replace function handle_wash_completion() returns trigger
 language plpgsql security definer as $$
 declare
   v_inventory_id uuid;
 begin
-  if new.status = 'completed' and (old.status is distinct from 'completed') then
+  if new.status = 'completed' and (TG_OP = 'INSERT' or (TG_OP = 'UPDATE' and old.status is distinct from 'completed')) then
     new.completed_at := coalesce(new.completed_at, now());
-    new.actual_minutes := extract(epoch from (new.completed_at - new.started_at)) / 60;
+    if new.started_at is not null then
+      new.actual_minutes := coalesce(new.actual_minutes, round(extract(epoch from (new.completed_at - new.started_at)) / 60));
+    end if;
 
+    -- Deduct from washer stock
     select inventory_id into v_inventory_id
     from washer_inventory wi
-    join inventory i on i.id = wi.inventory_id
     where wi.washer_id = new.washer_id
     order by wi.balance_ml desc
     limit 1;
 
     if v_inventory_id is not null then
       update washer_inventory
-        set balance_ml = balance_ml - new.soap_used_ml
+        set balance_ml = greatest(0, balance_ml - new.soap_used_ml)
         where washer_id = new.washer_id and inventory_id = v_inventory_id;
     end if;
 
     insert into audit_logs (actor_id, action, entity, entity_id, detail)
     values (new.washer_id, 'wash_completed', 'wash_transactions', new.id,
-      jsonb_build_object('price', new.price, 'soap_used_ml', new.soap_used_ml));
+      jsonb_build_object(
+        'receipt_number', new.receipt_number,
+        'price', new.price,
+        'soap_used_ml', new.soap_used_ml,
+        'payment_method', new.payment_method
+      ));
   end if;
   return new;
 end;
 $$;
 
+drop trigger if exists trg_wash_completion on wash_transactions;
 create trigger trg_wash_completion
-  before update on wash_transactions
+  before insert or update on wash_transactions
   for each row execute function handle_wash_completion();
 
--- ---------- Automation: apply soap_request decision to inventory + washer stock ----------
+-- ---------- Automation: Apply soap request decision ----------
 create or replace function handle_request_decision() returns trigger
 language plpgsql security definer as $$
 begin
-  if new.status in ('approved','partial') and old.status = 'pending' then
+  if new.status in ('approved','partial') and (TG_OP = 'INSERT' or old.status = 'pending') then
     new.decided_at := now();
-    update inventory set total_ml = total_ml - new.quantity_approved where id = new.inventory_id;
+    update inventory set total_ml = greatest(0, total_ml - new.quantity_approved) where id = new.inventory_id;
 
     insert into inventory_movements (inventory_id, change_ml, reason, reference_id, created_by)
     values (new.inventory_id, -new.quantity_approved, 'issue', new.id, new.approved_by);
@@ -305,6 +408,68 @@ begin
 end;
 $$;
 
+drop trigger if exists trg_request_decision on soap_requests;
 create trigger trg_request_decision
   before update on soap_requests
   for each row execute function handle_request_decision();
+
+-- ---------- Secured Admin RPC Functions ----------
+create or replace function admin_create_employee(
+  p_email text,
+  p_password text,
+  p_full_name text,
+  p_role text,
+  p_phone text default null
+) returns uuid
+language plpgsql security definer as $$
+declare
+  v_user_id uuid;
+  v_caller_role user_role;
+begin
+  v_caller_role := current_role_name();
+  if v_caller_role is distinct from 'administrator'::user_role then
+    raise exception 'Access denied: Only administrators can create employees';
+  end if;
+
+  v_user_id := (select id from auth.users where email = p_email limit 1);
+  if v_user_id is null then
+    v_user_id := gen_random_uuid();
+    insert into auth.users (id, email, encrypted_password, email_confirmed_at, role)
+    values (
+      v_user_id,
+      p_email,
+      crypt(p_password, gen_salt('bf')),
+      now(),
+      'authenticated'
+    );
+  end if;
+
+  insert into profiles (id, full_name, role, phone)
+  values (v_user_id, p_full_name, p_role::user_role, p_phone)
+  on conflict (id) do update
+    set full_name = excluded.full_name,
+        role = excluded.role,
+        phone = excluded.phone;
+
+  return v_user_id;
+end;
+$$;
+
+create or replace function admin_reset_employee_password(
+  p_user_id uuid,
+  p_new_password text
+) returns void
+language plpgsql security definer as $$
+declare
+  v_caller_role user_role;
+begin
+  v_caller_role := current_role_name();
+  if v_caller_role is distinct from 'administrator'::user_role then
+    raise exception 'Access denied: Only administrators can reset passwords';
+  end if;
+
+  update auth.users
+  set encrypted_password = crypt(p_new_password, gen_salt('bf'))
+  where id = p_user_id;
+end;
+$$;

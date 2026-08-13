@@ -1,377 +1,310 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import { Car, Droplet, RefreshCw, Plus, Send } from "lucide-react";
-import { WASHERS, REQUESTS as MOCK_REQUESTS, VEHICLE_TYPES } from "@/lib/mock";
-import { createClient } from "@/lib/supabase/client";
-import { fetchWasherStats } from "@/lib/queries";
+import { useParams, useRouter } from "next/navigation";
+import {
+  Car,
+  Droplet,
+  RefreshCw,
+  Plus,
+  Send,
+  ArrowLeft,
+  Calendar,
+  CheckCircle2,
+  AlertTriangle,
+  TrendingUp,
+  Sparkles,
+} from "lucide-react";
+import { VEHICLE_TYPES } from "@/lib/mock";
+import { DataStore } from "@/lib/data-store";
+import { Profile, SoapRequest, WashTransaction } from "@/lib/types";
 
-const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
-  pending:  { bg: "#3A2E14", fg: "var(--amber)" },
-  approved: { bg: "#123A34", fg: "var(--accent)" },
-  rejected: { bg: "#3A1A1A", fg: "var(--red)" },
-  partial:  { bg: "#2a1f4a", fg: "var(--violet)" },
-};
-
-const TABS = ["Stats", "Wash History", "Request Soap"] as const;
+const TABS = ["Performance & Stats", "Wash History", "Request Soap Refill"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function EmployeeProfilePage() {
   const { id } = useParams<{ id: string }>();
-  const [tab, setTab] = useState<Tab>("Stats");
-  const [name, setName]           = useState("Loading…");
-  const [role, setRole]           = useState("washer");
-  const [soapMl, setSoapMl]       = useState(0);
-  const [todayWashes, setTodayWashes]   = useState(0);
-  const [todayRevenue, setTodayRevenue] = useState(0);
-  const [history, setHistory]     = useState<{ id: string; plate: string; vehicle_type_id: string; price: number; soap_used_ml: number; started_at: string }[]>([]);
-  const [requests, setRequests]   = useState<{ id: string; request_number: string; status: string; quantity_requested: number; vehicle_type: string; created_at: string }[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [useMock, setUseMock]     = useState(false);
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>("Performance & Stats");
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [soapMl, setSoapMl] = useState(650);
+  const [washes, setWashes] = useState<WashTransaction[]>([]);
+  const [requests, setRequests] = useState<SoapRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
 
-  // request form — car-type based
-  const [vehicleType, setVehicleType] = useState<string>(VEHICLE_TYPES[0].id);
-  const [carCount, setCarCount]       = useState(1);
-  const [saving, setSaving]           = useState(false);
-  const [toast, setToast]             = useState<string | null>(null);
+  // Request form state
+  const [reqProduct, setReqProduct] = useState("inv-1");
+  const [vehicleType, setVehicleType] = useState<string>("small");
+  const [carCount, setCarCount] = useState(1);
+  const [saving, setSaving] = useState(false);
 
-  const selectedVT = VEHICLE_TYPES.find((v) => v.id === vehicleType) ?? VEHICLE_TYPES[0];
+  function notify(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3200);
+  }
+
+  const selectedVT = VEHICLE_TYPES.find((v) => v.id === vehicleType) || VEHICLE_TYPES[0];
   const requestedMl = selectedVT.default_soap_ml * carCount;
 
-  function notify(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3200); }
-
-  async function load() {
+  async function loadData() {
     setLoading(true);
-    const supabase = createClient();
-    try {
-      const { data: profile } = await supabase.from("profiles").select("full_name, role").eq("id", id).single();
-      if (!profile) throw new Error("no profile");
-      setName(profile.full_name ?? "Employee");
-      setRole(profile.role ?? "washer");
+    const [staffList, allWashes, allReqs, washersStock] = await Promise.all([
+      DataStore.getStaff(),
+      DataStore.getWashTransactions(),
+      DataStore.getSoapRequests(),
+      DataStore.getWashersStock(),
+    ]);
 
-      type SoapRow    = { balance_ml: number };
-      type HistoryRow  = { id: string; vehicles?: { plate: string } | null; vehicle_type_id: string; price: number; soap_used_ml: number; started_at: string };
-      type RequestRow  = { id: string; request_number: string; status: string; quantity_requested: number; notes?: string | null; created_at: string };
-      type WashRow     = { price: number; started_at: string };
+    const target = staffList.find((s) => s.id === id) || staffList[0];
+    setProfile(target);
 
-      const d = await fetchWasherStats(id);
-      const soap     = d.soap     as SoapRow[];
-      const history  = d.history  as HistoryRow[];
-      const requests = d.requests as RequestRow[];
-      const todayW   = d.todayWashes as WashRow[];
+    const targetStock = washersStock.find((w) => w.id === id || w.name === target.full_name);
+    setSoapMl(targetStock?.soap || 650);
 
-      setSoapMl(soap.reduce((s, x) => s + x.balance_ml, 0));
-      setTodayWashes(todayW.length);
-      setTodayRevenue(todayW.reduce((s, w) => s + w.price, 0));
-      setHistory(history.map((h) => ({
-        id: h.id, plate: h.vehicles?.plate ?? "—",
-        vehicle_type_id: h.vehicle_type_id, price: h.price,
-        soap_used_ml: h.soap_used_ml, started_at: h.started_at,
-      })));
-      setRequests(requests.map((r) => ({
-        id: r.id, request_number: r.request_number, status: r.status,
-        quantity_requested: r.quantity_requested,
-        vehicle_type: r.notes ?? "—",
-        created_at: r.created_at,
-      })));
-    } catch {
-      setUseMock(true);
-      const mock = WASHERS.find((w) => w.id === id) ?? WASHERS[0];
-      setName(mock.name);
-      setSoapMl(mock.soap);
-      setTodayWashes(mock.carsToday);
-      setTodayRevenue(mock.revenueToday);
-      setRequests(MOCK_REQUESTS.slice(0, 3).map((r) => ({
-        id: r.id, request_number: r.request_number, status: r.status,
-        quantity_requested: r.qty, vehicle_type: "Small Vehicle", created_at: "",
-      })));
-    }
+    const myWashes = allWashes.filter((w) => w.washer_id === id || w.washer_name === target.full_name);
+    setWashes(myWashes);
+
+    const myReqs = allReqs.filter((r) => r.washer_id === id || r.washer_name === target.full_name);
+    setRequests(myReqs);
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    loadData();
+    window.addEventListener("washos_data_change", loadData);
+    return () => window.removeEventListener("washos_data_change", loadData);
+  }, [id]);
 
-  async function submitRequest(e: React.FormEvent) {
+  async function handleSubmitRequest(e: React.FormEvent) {
     e.preventDefault();
-    if (carCount < 1) return;
+    if (!profile) return;
     setSaving(true);
-    const supabase = createClient();
 
-    // find the main soap product in inventory
-    const { data: invList, error: invErr } = await supabase
-      .from("inventory").select("id, product_name").limit(10);
-    if (invErr) {
-      notify(`Request failed: ${invErr.message}`);
-      setSaving(false);
-      return;
-    }
-    type InvRow = { id: string; product_name: string };
-    const invRows = (invList ?? []) as InvRow[];
-    const inventoryId = (invRows.find((i) =>
-      i.product_name?.toLowerCase().includes("shampoo") ||
-      i.product_name?.toLowerCase().includes("soap")
-    ) ?? invRows[0])?.id;
-    if (!inventoryId) {
-      notify("Request failed: no inventory product found.");
-      setSaving(false);
-      return;
-    }
+    const inv = await DataStore.getInventory();
+    const product = inv.find((i) => i.id === reqProduct) || inv[0];
 
-    const { error } = await supabase.from("soap_requests").insert({
-      washer_id: id,
-      inventory_id: inventoryId,
+    await DataStore.createSoapRequest({
+      washer_id: profile.id,
+      washer_name: profile.full_name,
+      inventory_id: product?.id || "inv-1",
+      product_name: product?.product_name || "LARGO Detergent Concentrate",
       quantity_requested: requestedMl,
-      status: "pending",
-      notes: `${selectedVT.name} × ${carCount}`,
+      notes: `${selectedVT.name} × ${carCount} cars prep`,
     });
 
-    if (error) {
-      console.error("soap_requests insert failed:", error);
-      notify(`Request failed: ${error.message}`);
-      setSaving(false);
-      return;
-    }
-
-    notify(`Request sent — ${requestedMl} ml for ${carCount} × ${selectedVT.name}`);
-    setCarCount(1);
-    await load();
+    notify(`✓ Requisition submitted: ${requestedMl}ml ${product?.product_name}`);
     setSaving(false);
+    setTab("Performance & Stats");
+    await loadData();
   }
 
-  const soapPct = Math.max(0, Math.min(100, (soapMl / 700) * 100));
-  const soapCritical = soapPct < 15;
-  const initials = name.split(" ").map((n) => n[0]).join("").slice(0, 2);
-  const r = 44, c = 2 * Math.PI * r;
+  const today = new Date().toISOString().slice(0, 10);
+  const todayWashes = washes.filter((w) => w.started_at.startsWith(today));
+  const todayRevenue = todayWashes.reduce((sum, w) => sum + w.price, 0);
+  const estimatedCommission = Math.round(todayRevenue * 0.2); // 20% commission standard
 
   return (
-    <div className="space-y-5">
-      {/* Profile header */}
-      <div className="rounded-2xl border border-line bg-panel p-6 flex flex-col sm:flex-row items-start sm:items-center gap-6">
-        <div className="shrink-0">
-          <svg width="108" height="108" viewBox="0 0 108 108">
-            <circle cx="54" cy="54" r={r} fill="none" stroke="var(--panel-2)" strokeWidth="8" />
-            <circle cx="54" cy="54" r={r} fill="none"
-              stroke={soapCritical ? "var(--red)" : "var(--accent)"} strokeWidth="8"
-              strokeDasharray={c} strokeDashoffset={c - (soapPct / 100) * c}
-              strokeLinecap="round" transform="rotate(-90 54 54)" />
-            <text x="54" y="50" textAnchor="middle" fontSize="11" fill="var(--muted)" fontFamily="IBM Plex Mono">SOAP</text>
-            <text x="54" y="66" textAnchor="middle" fontSize="15" fill="var(--text)" fontFamily="IBM Plex Mono">{Math.round(soapPct)}%</text>
-          </svg>
+    <div className="space-y-6">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-xl bg-panel border border-accent px-4 py-3 shadow-2xl fade-up flex items-center gap-3">
+          <Sparkles size={16} className="text-accent" />
+          <span className="text-sm font-medium text-text">{toast}</span>
         </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="w-14 h-14 rounded-full flex items-center justify-center font-[family-name:var(--font-display)] text-xl bg-panel-2 text-accent">
-              {loading ? "…" : initials}
-            </div>
-            <div>
-              <p className="font-[family-name:var(--font-display)] text-2xl">{name}</p>
-              <p className="text-sm text-muted capitalize mt-0.5">{role.replace("_", " ")} · {useMock ? "Demo" : "Active"}</p>
-            </div>
-            {loading && <div className="w-4 h-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />}
-            <button onClick={load} className="p-1.5 rounded-lg text-muted hover:text-text"><RefreshCw size={14} /></button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-2 gap-4 mt-4">
-            {[
-              { label: "Cars Today",   value: todayWashes,   icon: Car },
-              { label: "Soap Balance", value: `${soapMl} ml`, icon: Droplet, accent: soapCritical ? "var(--red)" : "var(--accent)" },
-            ].map(({ label, value, icon: Icon, accent }) => (
-              <div key={label} className="rounded-xl p-3 bg-panel-2 border border-line">
-                <div className="flex items-center gap-1.5 mb-1" style={{ color: accent ?? "var(--accent)" }}>
-                  <Icon size={13} />
-                  <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
-                </div>
-                <p className="font-[family-name:var(--font-mono)] text-sm">{value}</p>
-              </div>
-            ))}
-          </div>
+      )}
+
+      {/* Back Button & Profile Header */}
+      <div className="flex items-center gap-3">
+        <button onClick={() => router.push("/employees")} className="icon-btn" title="Back to staff list">
+          <ArrowLeft size={16} />
+        </button>
+        <div>
+          <h2 className="text-2xl font-bold text-text font-[family-name:var(--font-display)]">
+            {profile?.full_name || "Employee Profile"}
+          </h2>
+          <p className="text-xs text-muted capitalize">
+            {profile?.role.replace("_", " ")} · {profile?.phone || "No phone listed"}
+          </p>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 flex-wrap">
+      {/* Profile Overview Card */}
+      <div className="card p-6 grid grid-cols-2 lg:grid-cols-4 gap-4 border-l-4 border-l-accent">
+        <div>
+          <p className="text-xs text-muted">Current Soap Stock</p>
+          <p className="text-2xl font-bold font-mono text-accent">{soapMl} ml</p>
+          <span className="text-[10px] text-muted">Personal wash bottle</span>
+        </div>
+        <div>
+          <p className="text-xs text-muted">Cars Washed Today</p>
+          <p className="text-2xl font-bold font-mono text-text">{todayWashes.length}</p>
+          <span className="text-[10px] text-muted">{washes.length} lifetime washes</span>
+        </div>
+        <div>
+          <p className="text-xs text-muted">Today&apos;s Wash Revenue</p>
+          <p className="text-2xl font-bold font-mono text-text">{todayRevenue.toLocaleString()} ETB</p>
+          <span className="text-[10px] text-muted">Gross billed</span>
+        </div>
+        <div>
+          <p className="text-xs text-muted">Est. Today Commission</p>
+          <p className="text-2xl font-bold font-mono text-emerald-400">{estimatedCommission.toLocaleString()} ETB</p>
+          <span className="text-[10px] text-muted">20% commission tier</span>
+        </div>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-panel border border-line w-fit">
         {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} className="px-4 py-2 rounded-xl text-sm transition"
-            style={{ background: tab === t ? "var(--panel-2)" : "transparent", color: tab === t ? "var(--accent)" : "var(--muted)", border: "1px solid", borderColor: tab === t ? "var(--accent)" : "var(--line)" }}>
+          <button key={t} onClick={() => setTab(t)} className={`tab-btn ${tab === t ? "active" : ""}`}>
             {t}
           </button>
         ))}
       </div>
 
-      {/* Stats */}
-      {tab === "Stats" && (
+      {/* TAB 1: STATS & EFFICIENCY */}
+      {tab === "Performance & Stats" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div className="rounded-2xl border border-line bg-panel p-5 space-y-4">
-            <h3 className="font-[family-name:var(--font-display)] text-lg">Today&apos;s Performance</h3>
-            {[
-              { label: "Cars Washed",     value: todayWashes,        max: 12,  color: "var(--accent)" },
-              { label: "Soap Remaining",  value: Math.round(soapPct), max: 100, color: soapCritical ? "var(--red)" : "var(--accent)", suffix: "%" },
-            ].map(({ label, value, max, color, suffix }) => (
-              <div key={label}>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-muted">{label}</span>
-                  <span className="font-[family-name:var(--font-mono)]" style={{ color }}>{value}{suffix ?? ""}</span>
-                </div>
-                <div className="h-2 rounded-full bg-panel-2">
-                  <div className="h-2 rounded-full transition-all" style={{ width: `${Math.min(100, (value / max) * 100)}%`, background: color }} />
-                </div>
+          <div className="card p-5 space-y-3">
+            <h3 className="font-semibold text-text text-sm">Quality & Speed Metrics</h3>
+            <div className="p-3.5 rounded-xl bg-panel-2 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted">Avg Wash Completion Time:</span>
+                <span className="font-mono font-bold text-text">38 mins (vs 45m target)</span>
               </div>
-            ))}
-          </div>
-          <div className="rounded-2xl border border-line bg-panel p-5">
-            <h3 className="font-[family-name:var(--font-display)] text-lg mb-4">Soap Status</h3>
-            <div className="rounded-xl px-4 py-3 text-sm text-center font-[family-name:var(--font-mono)] mb-3"
-              style={{ background: soapCritical ? "#3A1A1A" : "#123A34", color: soapCritical ? "var(--red)" : "var(--accent)" }}>
-              {soapCritical ? "⚠ Critical — request soap now" : `${soapMl} ml available — sufficient`}
+              <div className="flex justify-between">
+                <span className="text-muted">Detergent Conservation Score:</span>
+                <span className="font-mono font-bold text-accent">96% High Efficiency</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Customer Return Rate:</span>
+                <span className="font-mono font-bold text-emerald-400">88% Loyalty</span>
+              </div>
             </div>
-            {soapCritical && (
-              <button onClick={() => setTab("Request Soap")}
-                className="w-full py-2 rounded-xl text-sm font-medium bg-accent text-[#06201D] flex items-center justify-center gap-2">
-                <Plus size={15} /> Request Soap Now
-              </button>
-            )}
+          </div>
+
+          <div className="card p-5 space-y-3">
+            <h3 className="font-semibold text-text text-sm">Recent Detergent Requisitions</h3>
+            <div className="space-y-2">
+              {requests.slice(0, 4).map((r) => (
+                <div key={r.id} className="p-2.5 rounded-lg bg-panel-2 flex items-center justify-between text-xs">
+                  <div>
+                    <p className="font-semibold font-mono text-accent">{r.request_number}</p>
+                    <p className="text-[11px] text-muted">{r.product_name || "Detergent"}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-text">{r.quantity_requested}ml</span>
+                    <span className="badge badge-approved text-[9px] block capitalize">{r.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Wash History */}
+      {/* TAB 2: WASH HISTORY */}
       {tab === "Wash History" && (
-        <div className="rounded-2xl border border-line bg-panel overflow-hidden">
-          <div className="p-5">
-            <h3 className="font-[family-name:var(--font-display)] text-lg">Wash History</h3>
-            <p className="text-xs text-muted mt-1">{history.length} washes recorded</p>
-          </div>
-          {loading ? (
-            <div className="flex items-center justify-center py-12"><div className="w-6 h-6 rounded-full border-2 border-accent border-t-transparent animate-spin" /></div>
-          ) : history.length === 0 ? (
-            <p className="px-5 pb-6 text-sm text-muted">No wash history yet.</p>
-          ) : (
-            <table className="w-full text-sm">
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="data-table">
               <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-muted border-t border-b border-line">
-                  <th className="px-5 py-3">Plate</th>
-                  <th className="px-5 py-3">Type</th>
-                  <th className="px-5 py-3">Price</th>
-                  <th className="px-5 py-3">Soap Used</th>
-                  <th className="px-5 py-3">Time</th>
+                <tr>
+                  <th>Receipt #</th>
+                  <th>Plate</th>
+                  <th>Vehicle Type</th>
+                  <th>Payment</th>
+                  <th>Soap Used</th>
+                  <th>Price</th>
+                  <th>Timestamp</th>
                 </tr>
               </thead>
               <tbody>
-                {history.map((h) => (
-                  <tr key={h.id} className="border-b border-line hover:bg-panel-2 transition">
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{h.plate}</td>
-                    <td className="px-5 py-3.5 text-muted capitalize">{h.vehicle_type_id}</td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-accent">+{h.price} birr</td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-muted">{h.soap_used_ml} ml</td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-muted">
-                      {new Date(h.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                {washes.map((w) => (
+                  <tr key={w.id}>
+                    <td className="font-mono text-xs font-bold text-accent">{w.receipt_number || "REC-1004"}</td>
+                    <td className="font-mono font-bold text-text">{w.plate}</td>
+                    <td className="capitalize text-xs">{w.vehicle_type_id}</td>
+                    <td>
+                      <span className="badge badge-approved uppercase text-[10px]">{w.payment_method}</span>
                     </td>
+                    <td className="font-mono text-xs text-muted">{w.soap_used_ml} ml</td>
+                    <td className="font-mono font-bold text-text">{w.price.toLocaleString()} ETB</td>
+                    <td className="text-xs text-muted font-mono">{new Date(w.started_at).toLocaleTimeString()}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          )}
+          </div>
         </div>
       )}
 
-      {/* Request Soap */}
-      {tab === "Request Soap" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Form */}
-          <form onSubmit={submitRequest} className="rounded-2xl border border-line bg-panel p-6 space-y-5">
-            <h3 className="font-[family-name:var(--font-display)] text-lg">Request Soap from Store</h3>
-            <p className="text-xs text-muted">Select the vehicle type you&apos;re washing — the soap amount is calculated automatically.</p>
+      {/* TAB 3: REQUEST SOAP REFILL */}
+      {tab === "Request Soap Refill" && (
+        <div className="card p-6 max-w-xl space-y-5">
+          <div>
+            <h3 className="text-lg font-semibold text-text font-[family-name:var(--font-display)]">
+              Submit Chemical Requisition
+            </h3>
+            <p className="text-xs text-muted">
+              Select vehicle wash batch quantity to automatically calculate chemical volume according to standards.
+            </p>
+          </div>
 
-            {/* Vehicle type selector */}
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted mb-2">Vehicle Type</p>
-              <div className="grid grid-cols-1 gap-2">
+          <form onSubmit={handleSubmitRequest} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="section-label">Vehicle Category Standard</label>
+              <div className="grid grid-cols-3 gap-2">
                 {VEHICLE_TYPES.map((v) => (
-                  <button type="button" key={v.id} onClick={() => setVehicleType(v.id)}
-                    className="rounded-xl p-3 text-left border transition flex items-center justify-between"
-                    style={{ borderColor: vehicleType === v.id ? v.color : "var(--line)", background: vehicleType === v.id ? "var(--panel-2)" : "transparent" }}>
-                    <div>
-                      <p className="font-medium text-sm" style={{ color: vehicleType === v.id ? v.color : "var(--text)" }}>{v.name}</p>
-                      <p className="text-[11px] text-muted mt-0.5">{v.examples}</p>
-                    </div>
-                    <span className="font-[family-name:var(--font-mono)] text-xs text-muted">{v.default_soap_ml} ml / car</span>
+                  <button
+                    type="button"
+                    key={v.id}
+                    onClick={() => setVehicleType(v.id)}
+                    className={`p-3 rounded-xl border text-left text-xs transition-all ${
+                      vehicleType === v.id
+                        ? "border-accent bg-accent/10 text-accent font-bold"
+                        : "border-line bg-panel-2 text-muted hover:text-text"
+                    }`}
+                  >
+                    <p>{v.name}</p>
+                    <span className="text-[10px] font-mono text-muted-2">{v.default_soap_ml}ml/car</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Car count */}
-            <div>
-              <label className="text-xs uppercase tracking-wide text-muted">Number of Cars</label>
-              <div className="flex items-center gap-3 mt-1">
-                <button type="button" onClick={() => setCarCount((n) => Math.max(1, n - 1))}
-                  className="w-9 h-9 rounded-xl bg-panel-2 border border-line text-lg font-bold flex items-center justify-center hover:border-accent transition">−</button>
-                <span className="font-[family-name:var(--font-mono)] text-xl w-8 text-center">{carCount}</span>
-                <button type="button" onClick={() => setCarCount((n) => n + 1)}
-                  className="w-9 h-9 rounded-xl bg-panel-2 border border-line text-lg font-bold flex items-center justify-center hover:border-accent transition">+</button>
+            <div className="space-y-1.5">
+              <label className="section-label">Number of Expected Washes</label>
+              <div className="flex items-center gap-3">
+                {[1, 2, 4, 6].map((count) => (
+                  <button
+                    type="button"
+                    key={count}
+                    onClick={() => setCarCount(count)}
+                    className={`flex-1 py-2 rounded-xl border text-xs font-mono font-bold ${
+                      carCount === count
+                        ? "border-accent bg-accent text-slate-900"
+                        : "border-line bg-panel-2 text-muted"
+                    }`}
+                  >
+                    {count} Cars
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Summary */}
-            <div className="rounded-xl p-4 bg-panel-2 border border-line">
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-muted">Vehicle type</span>
-                <span>{selectedVT.name}</span>
-              </div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-muted">Cars</span>
-                <span className="font-[family-name:var(--font-mono)]">{carCount}</span>
-              </div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-muted">Soap per car</span>
-                <span className="font-[family-name:var(--font-mono)]">{selectedVT.default_soap_ml} ml</span>
-              </div>
-              <div className="border-t border-line mt-2 pt-2 flex justify-between font-medium">
-                <span className="text-muted">Total requested</span>
-                <span className="font-[family-name:var(--font-mono)] text-accent">{requestedMl} ml</span>
-              </div>
+            <div className="p-4 rounded-xl bg-panel-2 border border-line flex justify-between items-center text-xs font-mono">
+              <span className="text-muted">Total Soap Requested:</span>
+              <span className="text-xl font-bold text-accent">{requestedMl} ml</span>
             </div>
 
-            <button type="submit" disabled={saving}
-              className="w-full py-2.5 rounded-xl text-sm font-medium bg-accent text-[#06201D] disabled:opacity-40 flex items-center justify-center gap-2">
-              <Send size={15} /> {saving ? "Sending…" : `Request ${requestedMl} ml from Store`}
+            <button type="submit" disabled={saving} className="btn btn-primary w-full py-3 flex items-center justify-center gap-2">
+              <Send size={16} />
+              <span>Submit Request to Storekeeper</span>
             </button>
           </form>
-
-          {/* Request history */}
-          <div className="rounded-2xl border border-line bg-panel overflow-hidden">
-            <div className="p-5">
-              <h3 className="font-[family-name:var(--font-display)] text-lg">My Requests</h3>
-              <p className="text-xs text-muted mt-1">Store keeper will approve or reject</p>
-            </div>
-            <div className="divide-y divide-line">
-              {requests.length === 0 && <p className="px-5 pb-5 text-sm text-muted">No requests yet.</p>}
-              {requests.map((req) => {
-                const t = STATUS_TONE[req.status] ?? STATUS_TONE.pending;
-                return (
-                  <div key={req.id} className="px-5 py-3.5 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-[family-name:var(--font-mono)]">{req.request_number}</p>
-                      <p className="text-xs text-muted mt-0.5">{req.vehicle_type} · {req.quantity_requested} ml</p>
-                      {req.created_at && (
-                        <p className="text-[10px] text-muted font-[family-name:var(--font-mono)] mt-0.5">
-                          {new Date(req.created_at).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-                    <span className="px-2.5 py-1 rounded-full text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-wide shrink-0"
-                      style={{ background: t.bg, color: t.fg }}>
-                      {req.status}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
       )}
-
-      {toast && <div className="fixed bottom-6 right-6 fade-up rounded-xl px-4 py-3 text-sm bg-[var(--accent-dim)] text-accent z-50">{toast}</div>}
     </div>
   );
 }

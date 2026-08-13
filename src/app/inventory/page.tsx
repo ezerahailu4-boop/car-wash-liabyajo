@@ -1,31 +1,39 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Search, X, Pencil, RefreshCw } from "lucide-react";
-import { INVENTORY as MOCK_INVENTORY } from "@/lib/mock";
-import { fetchInventory } from "@/lib/queries";
-import { createClient } from "@/lib/supabase/client";
+import {
+  Plus,
+  Search,
+  X,
+  Pencil,
+  RefreshCw,
+  Package,
+  AlertTriangle,
+  CheckCircle2,
+  TrendingDown,
+  Sparkles,
+  Layers,
+} from "lucide-react";
+import { DataStore } from "@/lib/data-store";
+import { InventoryItem } from "@/lib/types";
 
-type Item = {
-  id: string; product_name: string; category: string; total_ml: number;
-  min_stock_ml: number; supplier: string | null; expiry_date: string | null; status: string;
-};
+const CATEGORIES = ["All", "Soap", "Finishing", "Interior"] as const;
 
-const tone: Record<string, { bg: string; fg: string }> = {
-  ok: { bg: "#123A34", fg: "var(--accent)" },
-  low: { bg: "#3A2E14", fg: "var(--amber)" },
-  critical: { bg: "#3A1A1A", fg: "var(--red)" },
-};
-
-const EMPTY = { product_name: "", category: "", total_ml: "", min_stock_ml: "", supplier: "", expiry_date: "" };
+function statusBadge(status: string) {
+  if (status === "ok") return <span className="badge badge-ok">Healthy</span>;
+  if (status === "low") return <span className="badge badge-low">Low Stock</span>;
+  return <span className="badge badge-critical">Critical</span>;
+}
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-line bg-panel p-6 shadow-2xl">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="font-[family-name:var(--font-display)] text-lg">{title}</h3>
-          <button onClick={onClose} className="text-muted hover:text-text"><X size={18} /></button>
+    <div className="modal-backdrop flex items-center justify-center p-4">
+      <div className="modal-content max-w-md w-full p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-line">
+          <h3 className="font-semibold text-lg text-text font-[family-name:var(--font-display)]">{title}</h3>
+          <button onClick={onClose} className="icon-btn">
+            <X size={16} />
+          </button>
         </div>
         {children}
       </div>
@@ -34,200 +42,385 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 }
 
 export default function InventoryPage() {
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<InventoryItem[]>([]);
   const [search, setSearch] = useState("");
+  const [selectedCat, setSelectedCat] = useState<string>("All");
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
-  const [editItem, setEditItem] = useState<Item | null>(null);
-  const [form, setForm] = useState(EMPTY);
-  const [saving, setSaving] = useState(false);
+  const [editItem, setEditItem] = useState<InventoryItem | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    product_name: "",
+    category: "Soap",
+    total_ml: "",
+    min_stock_ml: "",
+    supplier: "",
+    expiry_date: "",
+    unit_cost: "0.188",
+  });
 
-  function notify(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000); }
+  function notify(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }
 
-  async function load() {
+  async function loadData() {
     setLoading(true);
-    try {
-      const data = await fetchInventory();
-      setItems(data.length ? data : MOCK_INVENTORY as Item[]);
-    } catch {
-      setItems(MOCK_INVENTORY as Item[]);
-    }
+    const data = await DataStore.getInventory();
+    setItems(data);
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    loadData();
+    window.addEventListener("washos_data_change", loadData);
+    return () => window.removeEventListener("washos_data_change", loadData);
+  }, []);
 
-  function openAdd() { setForm(EMPTY); setEditItem(null); setModal("add"); }
-  function openEdit(item: Item) {
+  function openAdd() {
+    setForm({
+      product_name: "",
+      category: "Soap",
+      total_ml: "",
+      min_stock_ml: "5000",
+      supplier: "",
+      expiry_date: "",
+      unit_cost: "0.188",
+    });
+    setEditItem(null);
+    setModal("add");
+  }
+
+  function openEdit(item: InventoryItem) {
     setEditItem(item);
     setForm({
-      product_name: item.product_name, category: item.category,
-      total_ml: String(item.total_ml), min_stock_ml: String(item.min_stock_ml),
-      supplier: item.supplier ?? "", expiry_date: item.expiry_date ?? "",
+      product_name: item.product_name,
+      category: item.category,
+      total_ml: String(item.total_ml),
+      min_stock_ml: String(item.min_stock_ml),
+      supplier: item.supplier || "",
+      expiry_date: item.expiry_date || "",
+      unit_cost: String(item.unit_cost || "0.188"),
     });
     setModal("edit");
   }
 
-  async function save() {
-    if (!form.product_name || !form.total_ml) return;
-    setSaving(true);
-    const payload = {
-      product_name: form.product_name, category: form.category,
-      total_ml: Number(form.total_ml), min_stock_ml: Number(form.min_stock_ml),
-      supplier: form.supplier || null, expiry_date: form.expiry_date || null,
-    };
-    try {
-      const supabase = createClient();
-      if (modal === "edit" && editItem) {
-        await supabase.from("inventory").update(payload).eq("id", editItem.id);
-        notify("Item updated.");
-      } else {
-        await supabase.from("inventory").insert(payload);
-        notify("Item added.");
-      }
-      await load();
-    } catch {
-      // demo fallback
-      if (modal === "edit" && editItem) {
-        setItems((prev) => prev.map((i) => i.id === editItem.id ? { ...i, ...payload, status: i.status } : i));
-      } else {
-        setItems((prev) => [...prev, { id: String(Date.now()), ...payload, status: "ok" }]);
-      }
-      notify(modal === "edit" ? "Item updated (demo)." : "Item added (demo).");
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.product_name.trim() || !form.total_ml) {
+      notify("Product name and quantity are required.");
+      return;
     }
-    setSaving(false);
+
+    if (modal === "edit" && editItem) {
+      await DataStore.updateInventoryItem(editItem.id, {
+        product_name: form.product_name,
+        category: form.category,
+        total_ml: Number(form.total_ml),
+        min_stock_ml: Number(form.min_stock_ml),
+        supplier: form.supplier || null,
+        expiry_date: form.expiry_date || null,
+        unit_cost: Number(form.unit_cost),
+      });
+      notify("✓ Item updated.");
+    } else {
+      await DataStore.createInventoryItem({
+        product_name: form.product_name,
+        category: form.category,
+        total_ml: Number(form.total_ml),
+        min_stock_ml: Number(form.min_stock_ml),
+        supplier: form.supplier || null,
+        expiry_date: form.expiry_date || null,
+        unit_cost: Number(form.unit_cost),
+      });
+      notify("✓ New chemical item added.");
+    }
+
     setModal(null);
+    await loadData();
   }
 
-  const filtered = items.filter((i) =>
-    i.product_name.toLowerCase().includes(search.toLowerCase()) ||
-    i.category.toLowerCase().includes(search.toLowerCase()) ||
-    (i.supplier ?? "").toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = items.filter((item) => {
+    const matchesSearch =
+      item.product_name.toLowerCase().includes(search.toLowerCase()) ||
+      (item.supplier || "").toLowerCase().includes(search.toLowerCase());
+    const matchesCat = selectedCat === "All" || item.category.toLowerCase() === selectedCat.toLowerCase();
+    return matchesSearch && matchesCat;
+  });
 
-  const counts = { ok: items.filter((i) => i.status === "ok").length, low: items.filter((i) => i.status === "low").length, critical: items.filter((i) => i.status === "critical").length };
+  const lowStockCount = items.filter((i) => i.status !== "ok").length;
+  const totalVolumeLiters = (items.reduce((s, i) => s + i.total_ml, 0) / 1000).toFixed(1);
 
   return (
-    <div className="space-y-5">
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: "Healthy", value: counts.ok, color: "var(--accent)", bg: "#123A34" },
-          { label: "Low Stock", value: counts.low, color: "var(--amber)", bg: "#3A2E14" },
-          { label: "Critical", value: counts.critical, color: "var(--red)", bg: "#3A1A1A" },
-        ].map(({ label, value, color, bg }) => (
-          <div key={label} className="rounded-2xl p-4 border border-line bg-panel flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
-              <p className="font-[family-name:var(--font-display)] text-2xl mt-1">{value}</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold" style={{ background: bg, color }}>{value}</div>
-          </div>
-        ))}
+    <div className="space-y-6">
+      {/* Toast Alert */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-xl bg-panel border border-accent px-4 py-3 shadow-2xl fade-up flex items-center gap-3">
+          <Sparkles size={16} className="text-accent" />
+          <span className="text-sm font-medium text-text">{toast}</span>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-text font-[family-name:var(--font-display)]">
+            Chemical & Consumable Inventory
+          </h2>
+          <p className="text-sm text-muted">
+            Track detergent stock balances, reorder points, consumption rates, and batch numbers.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={openAdd} className="btn btn-primary">
+            <Plus size={16} />
+            <span>Add Chemical Item</span>
+          </button>
+          <button onClick={loadData} className="icon-btn" title="Refresh">
+            <RefreshCw size={15} />
+          </button>
+        </div>
       </div>
 
-      <div className="rounded-2xl border border-line bg-panel overflow-hidden">
-        <div className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <h3 className="font-[family-name:var(--font-display)] text-lg">Store Inventory</h3>
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <div className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm bg-panel-2 border border-line flex-1 sm:flex-none">
-              <Search size={14} className="text-muted" />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search products…" className="bg-transparent outline-none text-sm w-40" />
-            </div>
-            <button onClick={load} className="p-2.5 rounded-xl bg-panel-2 border border-line text-muted hover:text-text"><RefreshCw size={15} /></button>
-            <button onClick={openAdd} className="px-4 py-2 rounded-xl text-sm font-medium bg-accent text-[#06201D] flex items-center gap-2 whitespace-nowrap">
-              <Plus size={16} /> Add Item
-            </button>
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="card p-4 flex items-center gap-3 border-l-4 border-l-accent">
+          <div className="w-10 h-10 rounded-xl bg-accent/10 text-accent flex items-center justify-center shrink-0">
+            <Package size={18} />
+          </div>
+          <div>
+            <p className="text-xs text-muted font-medium">Total Products</p>
+            <p className="text-xl font-bold font-mono text-text">{items.length}</p>
           </div>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-16"><div className="w-7 h-7 rounded-full border-2 border-accent border-t-transparent animate-spin" /></div>
-        ) : (
-          <table className="w-full text-sm">
+        <div className="card p-4 flex items-center gap-3 border-l-4 border-l-emerald-500">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+            <Layers size={18} />
+          </div>
+          <div>
+            <p className="text-xs text-muted font-medium">Total Volume in Store</p>
+            <p className="text-xl font-bold font-mono text-text">{totalVolumeLiters} Liters</p>
+          </div>
+        </div>
+
+        <div className="card p-4 flex items-center gap-3 border-l-4 border-l-amber">
+          <div className="w-10 h-10 rounded-xl bg-amber/10 text-amber flex items-center justify-center shrink-0">
+            <AlertTriangle size={18} />
+          </div>
+          <div>
+            <p className="text-xs text-muted font-medium">Stock Warnings</p>
+            <p className="text-xl font-bold font-mono text-text">{lowStockCount} items</p>
+          </div>
+        </div>
+
+        <div className="card p-4 flex items-center gap-3 border-l-4 border-l-purple-500">
+          <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
+            <CheckCircle2 size={18} />
+          </div>
+          <div>
+            <p className="text-xs text-muted font-medium">Approved Formula</p>
+            <p className="text-sm font-bold text-text">LARGO 180ml/250ml/500ml</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter & Search Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-panel border border-line w-full sm:w-auto">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCat(cat)}
+              className={`tab-btn flex-1 sm:flex-none ${selectedCat === cat ? "active" : ""}`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        <div className="search-row w-full sm:w-72">
+          <Search size={15} className="text-muted shrink-0" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search chemical name or supplier..."
+            className="w-full text-xs"
+          />
+        </div>
+      </div>
+
+      {/* Main Table */}
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="data-table">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-muted border-t border-b border-line">
-                <th className="px-5 py-3">Product</th>
-                <th className="px-5 py-3">Category</th>
-                <th className="px-5 py-3">Supplier</th>
-                <th className="px-5 py-3">Stock</th>
-                <th className="px-5 py-3">Min</th>
-                <th className="px-5 py-3">Expiry</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3"></th>
+              <tr>
+                <th>Chemical Product</th>
+                <th>Category</th>
+                <th>Current Volume</th>
+                <th>Stock Bar</th>
+                <th>Min Reorder Threshold</th>
+                <th>Vendor / Supplier</th>
+                <th>Unit Rate</th>
+                <th>Status</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((i) => {
-                const pct = Math.min(100, (i.total_ml / (i.min_stock_ml * 3)) * 100);
-                const t = tone[i.status] ?? tone.ok;
+              {filtered.map((item) => {
+                const maxStock = Math.max(item.total_ml, item.min_stock_ml * 2.5);
+                const percent = Math.min(100, Math.round((item.total_ml / maxStock) * 100));
+
                 return (
-                  <tr key={i.id} className="border-b border-line hover:bg-panel-2 transition">
-                    <td className="px-5 py-3.5 font-medium">{i.product_name}</td>
-                    <td className="px-5 py-3.5 text-muted">{i.category}</td>
-                    <td className="px-5 py-3.5 text-muted">{i.supplier ?? "—"}</td>
-                    <td className="px-5 py-3.5 w-44">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-1.5 rounded-full bg-panel-2">
-                          <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: t.fg }} />
-                        </div>
-                        <span className="font-[family-name:var(--font-mono)] text-xs">{(i.total_ml / 1000).toFixed(1)} L</span>
-                      </div>
+                  <tr key={item.id}>
+                    <td>
+                      <p className="font-semibold text-text text-sm">{item.product_name}</p>
+                      {item.batch_number && (
+                        <span className="text-[10px] font-mono text-muted">{item.batch_number}</span>
+                      )}
                     </td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-muted">{(i.min_stock_ml / 1000).toFixed(1)} L</td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-muted">{i.expiry_date ?? "—"}</td>
-                    <td className="px-5 py-3.5">
-                      <span className="px-2.5 py-1 rounded-full text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-wide" style={{ background: t.bg, color: t.fg }}>
-                        {i.status}
+                    <td>
+                      <span className="badge badge-approved text-[10px]">{item.category}</span>
+                    </td>
+                    <td>
+                      <span className="font-mono font-bold text-text text-sm">
+                        {(item.total_ml / 1000).toFixed(1)} L
+                      </span>
+                      <span className="text-[11px] text-muted block font-mono">
+                        ({item.total_ml.toLocaleString()} ml)
                       </span>
                     </td>
-                    <td className="px-5 py-3.5">
-                      <button onClick={() => openEdit(i)} className="p-1.5 rounded-lg text-muted hover:text-text hover:bg-panel-2"><Pencil size={14} /></button>
+                    <td className="w-36">
+                      <div className="w-full h-2 rounded-full bg-panel-3 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            item.status === "critical"
+                              ? "bg-red"
+                              : item.status === "low"
+                              ? "bg-amber"
+                              : "bg-accent"
+                          }`}
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                    </td>
+                    <td className="font-mono text-xs text-muted">
+                      {(item.min_stock_ml / 1000).toFixed(1)} L ({item.min_stock_ml.toLocaleString()} ml)
+                    </td>
+                    <td className="text-xs text-muted">{item.supplier || "Chemtech PLC"}</td>
+                    <td className="font-mono text-xs text-text">{item.unit_cost || 0.188} ETB/ml</td>
+                    <td>{statusBadge(item.status)}</td>
+                    <td>
+                      <button
+                        onClick={() => openEdit(item)}
+                        className="btn btn-ghost py-1 px-2.5 text-xs flex items-center gap-1"
+                      >
+                        <Pencil size={12} />
+                        <span>Edit</span>
+                      </button>
                     </td>
                   </tr>
                 );
               })}
-              {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-5 py-8 text-center text-muted text-sm">No items found.</td></tr>
-              )}
             </tbody>
           </table>
-        )}
+        </div>
       </div>
 
+      {/* ADD / EDIT MODAL */}
       {modal && (
-        <Modal title={modal === "edit" ? "Edit Item" : "Add Inventory Item"} onClose={() => setModal(null)}>
-          <div className="space-y-4">
-            {[
-              { label: "Product Name", key: "product_name", placeholder: "e.g. Foam Shampoo Concentrate" },
-              { label: "Category", key: "category", placeholder: "e.g. Soap" },
-              { label: "Supplier", key: "supplier", placeholder: "e.g. Chemtech PLC" },
-              { label: "Current Stock (ml)", key: "total_ml", placeholder: "e.g. 18000" },
-              { label: "Min Stock (ml)", key: "min_stock_ml", placeholder: "e.g. 5000" },
-              { label: "Expiry Date", key: "expiry_date", placeholder: "YYYY-MM-DD" },
-            ].map(({ label, key, placeholder }) => (
-              <div key={key}>
-                <label className="text-xs uppercase tracking-wide text-muted">{label}</label>
+        <Modal
+          title={modal === "add" ? "Add Chemical / Consumable" : "Edit Stock Item"}
+          onClose={() => setModal(null)}
+        >
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="section-label">Product Name *</label>
+              <input
+                value={form.product_name}
+                onChange={(e) => setForm({ ...form, product_name: e.target.value })}
+                placeholder="e.g. LARGO Foam Detergent"
+                className="input"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="section-label">Category</label>
+                <select
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  className="input"
+                >
+                  <option value="Soap">Soap & Detergent</option>
+                  <option value="Finishing">Finishing & Wax</option>
+                  <option value="Interior">Interior Care</option>
+                  <option value="Equipment">Equipment & Towels</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="section-label">Unit Cost (ETB/ml)</label>
                 <input
-                  value={form[key as keyof typeof form]}
-                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                  placeholder={placeholder}
-                  className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent"
+                  type="number"
+                  step="0.001"
+                  value={form.unit_cost}
+                  onChange={(e) => setForm({ ...form, unit_cost: e.target.value })}
+                  className="input font-mono"
+                  required
                 />
               </div>
-            ))}
-            <div className="flex gap-3 pt-2">
-              <button onClick={save} disabled={saving} className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-accent text-[#06201D] disabled:opacity-50">
-                {saving ? "Saving…" : modal === "edit" ? "Save Changes" : "Add Item"}
-              </button>
-              <button onClick={() => setModal(null)} className="flex-1 py-2.5 rounded-xl text-sm border border-line text-muted">Cancel</button>
             </div>
-          </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="section-label">Current Stock (ml) *</label>
+                <input
+                  type="number"
+                  value={form.total_ml}
+                  onChange={(e) => setForm({ ...form, total_ml: e.target.value })}
+                  placeholder="e.g. 20000 (20L)"
+                  className="input font-mono"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="section-label">Min Alert Threshold (ml) *</label>
+                <input
+                  type="number"
+                  value={form.min_stock_ml}
+                  onChange={(e) => setForm({ ...form, min_stock_ml: e.target.value })}
+                  placeholder="e.g. 5000"
+                  className="input font-mono"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="section-label">Supplier / Vendor</label>
+              <input
+                value={form.supplier}
+                onChange={(e) => setForm({ ...form, supplier: e.target.value })}
+                placeholder="e.g. Chemtech PLC"
+                className="input"
+              />
+            </div>
+
+            <div className="pt-3 flex gap-2 justify-end">
+              <button type="button" onClick={() => setModal(null)} className="btn btn-ghost">
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                {modal === "add" ? "Create Item" : "Save Changes"}
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
-
-      {toast && <div className="fixed bottom-6 right-6 fade-up rounded-xl px-4 py-3 text-sm bg-[var(--accent-dim)] text-accent z-50">{toast}</div>}
     </div>
   );
 }

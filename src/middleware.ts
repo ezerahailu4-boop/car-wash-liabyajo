@@ -3,7 +3,6 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC: string[] = ["/login", "/reset-password"];
 
-// What each role is allowed to access
 const ROLE_HOME: Record<string, string> = {
   administrator: "/",
   manager: "/",
@@ -12,7 +11,19 @@ const ROLE_HOME: Record<string, string> = {
 };
 
 const ROLE_ALLOWED: Record<string, string[]> = {
-  administrator: ["/", "/wash", "/inventory", "/requests", "/employees", "/customers", "/expenses", "/reports", "/store", "/portal", "/admin"],
+  administrator: [
+    "/",
+    "/wash",
+    "/inventory",
+    "/requests",
+    "/employees",
+    "/customers",
+    "/expenses",
+    "/reports",
+    "/store",
+    "/portal",
+    "/admin",
+  ],
   manager: ["/", "/wash", "/inventory", "/requests", "/employees", "/customers", "/expenses", "/reports"],
   store_keeper: ["/store"],
   washer: ["/portal"],
@@ -24,48 +35,64 @@ export async function middleware(request: NextRequest) {
 
   if (PUBLIC.includes(pathname)) return response;
 
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    return response;
+  // 1. Check local session cookie first (for instant fast login)
+  const roleCookie = request.cookies.get("washos_role")?.value;
+  const sessionCookie = request.cookies.get("washos_session")?.value;
+
+  let activeRole = roleCookie;
+  if (!activeRole && sessionCookie) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(sessionCookie));
+      activeRole = parsed.role;
+    } catch { /* ignore */ }
   }
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll(); },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
-        },
-      },
-    }
-  );
+  // 2. If no local session cookie, check Supabase Auth
+  if (!activeRole && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    try {
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        {
+          cookies: {
+            getAll() {
+              return request.cookies.getAll();
+            },
+            setAll(cookiesToSet) {
+              cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+              response = NextResponse.next({ request });
+              cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+            },
+          },
+        }
+      );
 
-  const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+        activeRole = profile?.role ?? "washer";
+      }
+    } catch { /* ignore network error */ }
+  }
 
-  // Not logged in → send to login
-  if (!user) {
+  // If still no authenticated role, redirect to login
+  if (!activeRole) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
     return NextResponse.redirect(url);
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  const role = profile?.role ?? "washer";
-  const allowed = ROLE_ALLOWED[role] ?? ["/portal"];
-
+  // Check role authorization for current path
+  const allowed = ROLE_ALLOWED[activeRole] ?? ["/portal"];
   const isAllowed = allowed.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
   if (!isAllowed) {
-    const home = ROLE_HOME[role] ?? "/portal";
+    const home = ROLE_HOME[activeRole] ?? "/portal";
     const url = request.nextUrl.clone();
     url.pathname = home;
     url.search = "";

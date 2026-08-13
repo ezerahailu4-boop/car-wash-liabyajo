@@ -1,42 +1,47 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, PackageCheck, Truck, Building2, X, Check, Bell } from "lucide-react";
-import { PURCHASE_ORDERS, SUPPLIERS, INVENTORY, REQUESTS as MOCK_REQUESTS } from "@/lib/mock";
-import { createClient } from "@/lib/supabase/client";
-
-type PO = (typeof PURCHASE_ORDERS)[number];
-
-type SoapReq = {
-  id: string;
-  request_number: string;
-  washer_name: string;
-  product_name: string;
-  notes: string;
-  quantity_requested: number;
-  quantity_approved: number | null;
-  status: string;
-  created_at: string;
-};
-
-const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
-  pending:  { bg: "#3A2E14", fg: "var(--amber)" },
-  approved: { bg: "#123A34", fg: "var(--accent)" },
-  rejected: { bg: "#3A1A1A", fg: "var(--red)" },
-  received: { bg: "#123A34", fg: "var(--accent)" },
-  cancelled:{ bg: "#3A1A1A", fg: "var(--red)" },
-};
+import {
+  Plus,
+  PackageCheck,
+  Truck,
+  X,
+  Check,
+  Bell,
+  Search,
+  Phone,
+  Mail,
+  MapPin,
+  RefreshCw,
+  AlertTriangle,
+  Building2,
+  ReceiptText,
+  DollarSign,
+  Sparkles,
+} from "lucide-react";
+import { DataStore } from "@/lib/data-store";
+import { InventoryItem, PurchaseOrder, SoapRequest, Supplier } from "@/lib/types";
 
 const TABS = ["Soap Requests", "Purchase Orders", "Receive Stock", "Suppliers"] as const;
 type Tab = (typeof TABS)[number];
 
+const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
+  pending: { bg: "#3A2E14", fg: "var(--amber)" },
+  approved: { bg: "#123A34", fg: "var(--accent)" },
+  rejected: { bg: "#3A1A1A", fg: "var(--red)" },
+  received: { bg: "#123A34", fg: "var(--accent)" },
+  cancelled: { bg: "#3A1A1A", fg: "var(--red)" },
+};
+
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-line bg-panel p-6 shadow-2xl">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="font-[family-name:var(--font-display)] text-lg">{title}</h3>
-          <button onClick={onClose} className="text-muted hover:text-text"><X size={18} /></button>
+    <div className="modal-backdrop flex items-center justify-center p-4">
+      <div className="modal-content max-w-md w-full p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-line">
+          <h3 className="font-semibold text-lg text-text font-[family-name:var(--font-display)]">{title}</h3>
+          <button onClick={onClose} className="icon-btn">
+            <X size={16} />
+          </button>
         </div>
         {children}
       </div>
@@ -46,474 +51,692 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 
 export default function StorePage() {
   const [tab, setTab] = useState<Tab>("Soap Requests");
-  const [orders, setOrders] = useState(PURCHASE_ORDERS);
-  const [suppliers, setSuppliers] = useState(SUPPLIERS);
-  const [soapReqs, setSoapReqs] = useState<SoapReq[]>([]);
-  const [loadingReqs, setLoadingReqs] = useState(true);
-  const [liveInventory, setLiveInventory] = useState<typeof INVENTORY | null>(null);
+  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [soapReqs, setSoapReqs] = useState<SoapRequest[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showPO, setShowPO] = useState(false);
   const [showSupplier, setShowSupplier] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [receiveId, setReceiveId] = useState<string | null>(null);
-  const [poForm, setPoForm] = useState({ supplier: "", product: "", qty_ml: "", unit_cost: "" });
-  const [supForm, setSupForm] = useState({ name: "", contact: "", products: "" });
   const [approveQty, setApproveQty] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState("");
 
-  async function loadRequests() {
-    setLoadingReqs(true);
-    const supabase = createClient();
-    try {
-      const { data } = await supabase
-        .from("soap_requests")
-        .select("id, request_number, quantity_requested, quantity_approved, status, notes, created_at, profiles(full_name), inventory(product_name)")
-        .order("created_at", { ascending: false });
-      if (data?.length) {
-        type SoapReqRow = { id: string; request_number: string; quantity_requested: number; quantity_approved: number | null; status: string; notes: string | null; created_at: string; profiles: { full_name: string } | null; inventory: { product_name: string } | null };
-        setSoapReqs((data as SoapReqRow[]).map((r) => ({
-          id: r.id,
-          request_number: r.request_number,
-          washer_name: r.profiles?.full_name ?? "Unknown",
-          product_name: r.inventory?.product_name ?? "—",
-          notes: r.notes ?? "—",
-          quantity_requested: r.quantity_requested,
-          quantity_approved: r.quantity_approved,
-          status: r.status,
-          created_at: r.created_at,
-        })));
-      } else {
-        setSoapReqs(MOCK_REQUESTS.map((r) => ({
-          id: r.id, request_number: r.request_number,
-          washer_name: r.washer, product_name: r.product, notes: "Small Vehicle × 1",
-          quantity_requested: r.qty, quantity_approved: null,
-          status: r.status, created_at: "",
-        })));
-      }
-    } catch {
-      setSoapReqs(MOCK_REQUESTS.map((r) => ({
-        id: r.id, request_number: r.request_number,
-        washer_name: r.washer, product_name: r.product, notes: "Small Vehicle × 1",
-        quantity_requested: r.qty, quantity_approved: null,
-        status: r.status, created_at: "",
-      })));
-    }
-    setLoadingReqs(false);
-  }
+  // PO Form state
+  const [poForm, setPoForm] = useState({
+    supplier_id: "",
+    inventory_id: "",
+    qty_ml: "",
+    unit_cost: "",
+    notes: "",
+  });
 
-  async function loadInventory() {
-    const supabase = createClient();
-    try {
-      const { data } = await supabase.from("inventory").select("*").order("product_name");
-      if (data?.length) setLiveInventory(data as typeof INVENTORY);
-    } catch { /* use mock */ }
-  }
-
-  useEffect(() => { loadRequests(); loadInventory(); }, []);
-
-  async function decide(id: string, status: "approved" | "rejected") {
-    const qty = status === "approved" ? Number(approveQty[id] ?? soapReqs.find((r) => r.id === id)?.quantity_requested ?? 0) : null;
-    setSoapReqs((prev) => prev.map((r) => r.id === id ? { ...r, status, quantity_approved: qty } : r));
-    const supabase = createClient();
-    try {
-      await supabase.from("soap_requests").update({
-        status,
-        quantity_approved: qty,
-        approved_by: (await supabase.auth.getUser()).data.user?.id,
-      }).eq("id", id);
-    } catch { /* demo */ }
-    notify(status === "approved" ? `Approved — ${qty} ml dispensed.` : "Request rejected.");
-  }
+  // Supplier Form state
+  const [supForm, setSupForm] = useState({
+    name: "",
+    contact: "",
+    email: "",
+    products: "",
+    address: "",
+  });
 
   function notify(msg: string) {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3200);
   }
 
-  function createPO() {
-    if (!poForm.supplier || !poForm.product || !poForm.qty_ml) return;
-    const next: PO = {
-      id: String(Date.now()),
-      po_number: `PO-${String(orders.length + 45).padStart(4, "0")}`,
-      supplier: poForm.supplier,
-      product: poForm.product,
-      qty_ml: Number(poForm.qty_ml),
-      unit_cost: Number(poForm.unit_cost),
-      status: "pending",
-      ordered_at: new Date().toISOString().slice(0, 10),
-      received_at: null,
-    };
-    setOrders((prev) => [next, ...prev]);
-    setPoForm({ supplier: "", product: "", qty_ml: "", unit_cost: "" });
+  async function loadData() {
+    setLoading(true);
+    const [reqs, pos, sups, inv] = await Promise.all([
+      DataStore.getSoapRequests(),
+      DataStore.getPurchaseOrders(),
+      DataStore.getSuppliers(),
+      DataStore.getInventory(),
+    ]);
+
+    setSoapReqs(reqs);
+    setOrders(pos);
+    setSuppliers(sups);
+    setInventory(inv);
+
+    if (sups.length > 0 && !poForm.supplier_id) {
+      setPoForm((prev) => ({
+        ...prev,
+        supplier_id: sups[0].id,
+        inventory_id: inv[0]?.id || "",
+        unit_cost: String(inv[0]?.unit_cost || "0.188"),
+      }));
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadData();
+    window.addEventListener("washos_data_change", loadData);
+    return () => window.removeEventListener("washos_data_change", loadData);
+  }, []);
+
+  async function handleSoapDecision(id: string, status: "approved" | "rejected") {
+    const qty = status === "approved" ? Number(approveQty[id] || soapReqs.find((r) => r.id === id)?.quantity_requested || 0) : undefined;
+    await DataStore.decideSoapRequest(id, status, qty);
+    notify(status === "approved" ? `✓ Approved ${qty} ml detergent issue.` : "✕ Request rejected.");
+    await loadData();
+  }
+
+  async function handleCreatePO(e: React.FormEvent) {
+    e.preventDefault();
+    const sup = suppliers.find((s) => s.id === poForm.supplier_id);
+    const inv = inventory.find((i) => i.id === poForm.inventory_id);
+    const qty = Number(poForm.qty_ml);
+    const unitCost = Number(poForm.unit_cost);
+
+    if (!sup || !qty || qty <= 0) {
+      notify("Please fill all required purchase order fields.");
+      return;
+    }
+
+    await DataStore.createPurchaseOrder({
+      supplier_id: sup.id,
+      supplier_name: sup.name,
+      inventory_id: inv?.id || null,
+      product_name: inv?.product_name || "Detergent Concentrate",
+      qty_ml: qty,
+      unit_cost: unitCost,
+      notes: poForm.notes || undefined,
+    });
+
+    notify(`✓ PO created: ${qty.toLocaleString()} ml from ${sup.name}`);
     setShowPO(false);
-    notify(`${next.po_number} created.`);
+    setPoForm({ supplier_id: suppliers[0]?.id || "", inventory_id: inventory[0]?.id || "", qty_ml: "", unit_cost: "0.188", notes: "" });
+    await loadData();
   }
 
-  async function markReceived(id: string) {
-    const order = orders.find((o) => o.id === id);
-    if (!order) return;
-    const receivedDate = new Date().toISOString().slice(0, 10);
-    setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: "received", received_at: receivedDate } : o));
-    setReceiveId(null);
-    try {
-      const { createClient } = await import("@/lib/supabase/client");
-      const supabase = createClient();
-      // Find matching inventory item and add stock
-      const { data: invList } = await supabase.from("inventory").select("id, total_ml, product_name").limit(20);
-      type InvStockRow = { id: string; total_ml: number; product_name: string };
-      const inv = (invList as InvStockRow[] ?? []).find((i) =>
-        i.product_name?.toLowerCase().includes(order.product.toLowerCase())
-      ) ?? (invList as InvStockRow[])?.[0];
-      if (inv) {
-        await supabase.from("inventory").update({ total_ml: inv.total_ml + order.qty_ml }).eq("id", inv.id);
-        await supabase.from("inventory_movements").insert({ inventory_id: inv.id, change_ml: order.qty_ml, reason: "purchase" });
-      }
-    } catch { /* demo mode */ }
-    notify("Stock received and inventory updated.");
+  async function handleReceiveStock(poId: string) {
+    await DataStore.receivePurchaseOrder(poId);
+    notify("✓ Stock received and added to active inventory balance!");
+    await loadData();
   }
 
-  function cancelOrder(id: string) {
-    setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: "cancelled" } : o));
-    notify("Order cancelled.");
-  }
+  async function handleAddSupplier(e: React.FormEvent) {
+    e.preventDefault();
+    if (!supForm.name.trim() || !supForm.contact.trim()) {
+      notify("Supplier name and phone contact are required.");
+      return;
+    }
 
-  function addSupplier() {
-    if (!supForm.name) return;
-    setSuppliers((prev) => [...prev, { id: String(Date.now()), ...supForm }]);
-    setSupForm({ name: "", contact: "", products: "" });
+    await DataStore.createSupplier({
+      name: supForm.name.trim(),
+      contact: supForm.contact.trim(),
+      email: supForm.email.trim() || null,
+      products: supForm.products.trim() || "Chemicals & Detergents",
+      address: supForm.address.trim() || null,
+      active: true,
+    });
+
+    notify(`✓ Supplier ${supForm.name} added.`);
     setShowSupplier(false);
-    notify("Supplier added.");
+    setSupForm({ name: "", contact: "", email: "", products: "", address: "" });
+    await loadData();
   }
 
-  const pending = orders.filter((o) => o.status === "pending").length;
-  const totalValue = orders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + o.qty_ml * o.unit_cost, 0);
-  const pendingSoapReqs = soapReqs.filter((r) => r.status === "pending").length;
+  const pendingRequests = soapReqs.filter((r) => r.status === "pending");
+  const pendingPOs = orders.filter((o) => o.status === "pending");
+  const totalStockMl = inventory.reduce((sum, i) => sum + i.total_ml, 0);
 
   return (
-    <div className="space-y-5">
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: "Soap Requests", value: pendingSoapReqs, icon: Bell, accent: pendingSoapReqs > 0 ? "var(--amber)" : "var(--accent)" },
-          { label: "Pending Orders", value: pending, icon: Truck, accent: "var(--amber)" },
-          { label: "Products in Stock", value: INVENTORY.length, icon: PackageCheck, accent: "var(--accent)" },
-          { label: "Total PO Value", value: `${totalValue.toFixed(0)} birr`, icon: Check, accent: "var(--accent)" },
-        ].map(({ label, value, icon: Icon, accent }) => (
-          <div key={label} className="rounded-2xl p-5 border border-line bg-panel flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-muted">{label}</p>
-              <p className="font-[family-name:var(--font-display)] text-2xl mt-1">{value}</p>
-            </div>
-            <div className="rounded-xl p-2.5 bg-panel-2" style={{ color: accent }}><Icon size={18} /></div>
+    <div className="space-y-6">
+      {/* Toast Alert */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-xl bg-panel border border-accent px-4 py-3 shadow-2xl fade-up flex items-center gap-3">
+          <Sparkles size={16} className="text-accent" />
+          <span className="text-sm font-medium text-text">{toast}</span>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-text font-[family-name:var(--font-display)]">
+            Store & Inventory Operations
+          </h2>
+          <p className="text-sm text-muted">
+            Manage soap requests, procurement purchase orders, receiving logs, and chemical suppliers.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {tab === "Purchase Orders" && (
+            <button onClick={() => setShowPO(true)} className="btn btn-primary">
+              <Plus size={16} />
+              <span>Create Purchase Order</span>
+            </button>
+          )}
+          {tab === "Suppliers" && (
+            <button onClick={() => setShowSupplier(true)} className="btn btn-primary">
+              <Plus size={16} />
+              <span>Add Supplier</span>
+            </button>
+          )}
+          <button onClick={loadData} className="icon-btn" title="Refresh data">
+            <RefreshCw size={15} />
+          </button>
+        </div>
+      </div>
+
+      {/* Quick KPI Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="card p-4 flex items-center gap-3.5 border-l-4 border-l-amber">
+          <div className="w-10 h-10 rounded-xl bg-amber/10 text-amber flex items-center justify-center shrink-0">
+            <Bell size={18} />
           </div>
-        ))}
+          <div>
+            <p className="text-xs text-muted font-medium">Pending Soap Requests</p>
+            <p className="text-xl font-bold font-mono text-text">{pendingRequests.length}</p>
+          </div>
+        </div>
+
+        <div className="card p-4 flex items-center gap-3.5 border-l-4 border-l-accent">
+          <div className="w-10 h-10 rounded-xl bg-accent/10 text-accent flex items-center justify-center shrink-0">
+            <PackageCheck size={18} />
+          </div>
+          <div>
+            <p className="text-xs text-muted font-medium">Total Chemicals in Stock</p>
+            <p className="text-xl font-bold font-mono text-text">{(totalStockMl / 1000).toFixed(1)} L</p>
+          </div>
+        </div>
+
+        <div className="card p-4 flex items-center gap-3.5 border-l-4 border-l-sky-500">
+          <div className="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0">
+            <Truck size={18} />
+          </div>
+          <div>
+            <p className="text-xs text-muted font-medium">Pending Purchase Orders</p>
+            <p className="text-xl font-bold font-mono text-text">{pendingPOs.length}</p>
+          </div>
+        </div>
+
+        <div className="card p-4 flex items-center gap-3.5 border-l-4 border-l-purple-500">
+          <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
+            <Building2 size={18} />
+          </div>
+          <div>
+            <p className="text-xs text-muted font-medium">Verified Suppliers</p>
+            <p className="text-xl font-bold font-mono text-text">{suppliers.length}</p>
+          </div>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2">
+      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-panel border border-line w-fit">
         {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} className="px-4 py-2 rounded-xl text-sm transition"
-            style={{ background: tab === t ? "var(--panel-2)" : "transparent", color: tab === t ? "var(--accent)" : "var(--muted)", border: "1px solid", borderColor: tab === t ? "var(--accent)" : "var(--line)" }}>
-            {t}
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`tab-btn flex items-center gap-2 ${tab === t ? "active" : ""}`}
+          >
+            <span>{t}</span>
+            {t === "Soap Requests" && pendingRequests.length > 0 && (
+              <span className="w-4 h-4 rounded-full bg-amber text-slate-950 text-[10px] flex items-center justify-center font-bold">
+                {pendingRequests.length}
+              </span>
+            )}
+            {t === "Receive Stock" && pendingPOs.length > 0 && (
+              <span className="w-4 h-4 rounded-full bg-accent text-slate-950 text-[10px] flex items-center justify-center font-bold">
+                {pendingPOs.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      {/* Soap Requests from Employees */}
+      {/* TAB 1: SOAP REQUESTS */}
       {tab === "Soap Requests" && (
-        <div className="rounded-2xl border border-line bg-panel overflow-hidden">
-          <div className="p-5 flex items-center justify-between">
-            <div>
-              <h3 className="font-[family-name:var(--font-display)] text-lg">Employee Soap Requests</h3>
-              <p className="text-xs text-muted mt-1">Approve or reject — approved amounts are deducted from inventory and added to the washer&apos;s balance.</p>
-            </div>
-            <button onClick={loadRequests} className="p-2.5 rounded-xl bg-panel-2 border border-line text-muted hover:text-text">
-              <PackageCheck size={15} />
-            </button>
+        <div className="card overflow-hidden">
+          <div className="p-4 border-b border-line flex items-center justify-between">
+            <h3 className="font-semibold text-text">Attendant Detergent Requests</h3>
+            <span className="text-xs text-muted">{soapReqs.length} total requests</span>
           </div>
-          {loadingReqs ? (
-            <div className="flex items-center justify-center py-12"><div className="w-6 h-6 rounded-full border-2 border-accent border-t-transparent animate-spin" /></div>
-          ) : (
-            <table className="w-full text-sm">
+
+          <div className="overflow-x-auto">
+            <table className="data-table">
               <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-muted border-t border-b border-line">
-                  <th className="px-5 py-3">Request #</th>
-                  <th className="px-5 py-3">Washer</th>
-                  <th className="px-5 py-3">Product</th>
-                  <th className="px-5 py-3">For</th>
-                  <th className="px-5 py-3">Requested</th>
-                  <th className="px-5 py-3">Approve Qty</th>
-                  <th className="px-5 py-3">Status</th>
-                  <th className="px-5 py-3">Action</th>
+                <tr>
+                  <th>Request #</th>
+                  <th>Attendant</th>
+                  <th>Chemical Product</th>
+                  <th>Qty Requested</th>
+                  <th>Approve Qty (ml)</th>
+                  <th>Notes</th>
+                  <th>Status</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {soapReqs.map((req) => {
-                  const t = STATUS_TONE[req.status] ?? STATUS_TONE.pending;
+                {soapReqs.map((r) => {
+                  const tone = STATUS_TONE[r.status] || STATUS_TONE.pending;
+                  const isPending = r.status === "pending";
+
                   return (
-                    <tr key={req.id} className="border-b border-line">
-                      <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{req.request_number}</td>
-                      <td className="px-5 py-3.5 font-medium">{req.washer_name}</td>
-                      <td className="px-5 py-3.5 text-muted text-xs">{req.product_name}</td>
-                      <td className="px-5 py-3.5 text-muted text-xs">{req.notes}</td>
-                      <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{req.quantity_requested} ml</td>
-                      <td className="px-5 py-3.5">
-                        {req.status === "pending" ? (
+                    <tr key={r.id}>
+                      <td className="font-mono text-xs font-bold text-accent">{r.request_number}</td>
+                      <td className="font-medium text-text">{r.washer_name}</td>
+                      <td className="text-xs text-muted">{r.product_name}</td>
+                      <td className="font-mono font-bold text-text">{r.quantity_requested} ml</td>
+                      <td>
+                        {isPending ? (
                           <input
-                            type="number" min="1" max={req.quantity_requested}
-                            value={approveQty[req.id] ?? req.quantity_requested}
-                            onChange={(e) => setApproveQty((p) => ({ ...p, [req.id]: e.target.value }))}
-                            className="w-24 rounded-lg px-2 py-1 text-xs bg-panel-2 border border-line outline-none focus:ring-1 focus:ring-accent font-[family-name:var(--font-mono)]"
+                            type="number"
+                            defaultValue={r.quantity_requested}
+                            onChange={(e) => setApproveQty({ ...approveQty, [r.id]: e.target.value })}
+                            className="input py-1 px-2 text-xs w-24 font-mono"
                           />
                         ) : (
-                          <span className="font-[family-name:var(--font-mono)] text-xs text-muted">{req.quantity_approved ?? "—"} ml</span>
+                          <span className="font-mono text-xs text-muted">
+                            {r.quantity_approved ? `${r.quantity_approved} ml` : "—"}
+                          </span>
                         )}
                       </td>
-                      <td className="px-5 py-3.5">
-                        <span className="px-2.5 py-1 rounded-full text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-wide" style={{ background: t.bg, color: t.fg }}>
-                          {req.status}
+                      <td className="text-xs text-muted max-w-xs truncate">{r.notes || "Standard wash prep"}</td>
+                      <td>
+                        <span
+                          className="badge text-[10px]"
+                          style={{ background: tone.bg, color: tone.fg }}
+                        >
+                          {r.status}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5">
-                        {req.status === "pending" && (
-                          <div className="flex gap-2">
-                            <button onClick={() => decide(req.id, "approved")}
-                              className="px-3 py-1.5 rounded-xl text-xs bg-[#123A34] text-accent flex items-center gap-1.5">
-                              <Check size={13} /> Approve
+                      <td>
+                        {isPending ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleSoapDecision(r.id, "approved")}
+                              className="btn btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
+                              title="Approve and issue soap"
+                            >
+                              <Check size={12} />
+                              <span>Approve</span>
                             </button>
-                            <button onClick={() => decide(req.id, "rejected")}
-                              className="px-3 py-1.5 rounded-xl text-xs bg-[#3A1A1A] text-red flex items-center gap-1.5">
-                              <X size={13} /> Reject
+                            <button
+                              onClick={() => handleSoapDecision(r.id, "rejected")}
+                              className="btn btn-danger py-1 px-2 text-xs"
+                              title="Reject request"
+                            >
+                              <X size={12} />
                             </button>
                           </div>
+                        ) : (
+                          <span className="text-xs text-muted font-mono">Decided</span>
                         )}
-                        {req.status !== "pending" && <span className="text-xs text-muted">—</span>}
                       </td>
                     </tr>
                   );
                 })}
-                {soapReqs.length === 0 && (
-                  <tr><td colSpan={8} className="px-5 py-8 text-center text-sm text-muted">No requests yet.</td></tr>
-                )}
               </tbody>
             </table>
-          )}
+          </div>
         </div>
       )}
 
-      {/* Purchase Orders */}
+      {/* TAB 2: PURCHASE ORDERS */}
       {tab === "Purchase Orders" && (
-        <div className="rounded-2xl border border-line bg-panel overflow-hidden">
-          <div className="p-5 flex items-center justify-between">
-            <h3 className="font-[family-name:var(--font-display)] text-lg">Purchase Orders</h3>
-            <button onClick={() => setShowPO(true)} className="px-4 py-2 rounded-xl text-sm font-medium bg-accent text-[#06201D] flex items-center gap-2">
-              <Plus size={16} /> New Order
-            </button>
+        <div className="card overflow-hidden">
+          <div className="p-4 border-b border-line flex items-center justify-between">
+            <h3 className="font-semibold text-text">Procurement & Purchase Orders</h3>
+            <span className="text-xs text-muted">{orders.length} orders logged</span>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-muted border-t border-b border-line">
-                <th className="px-5 py-3">PO #</th>
-                <th className="px-5 py-3">Supplier</th>
-                <th className="px-5 py-3">Product</th>
-                <th className="px-5 py-3">Qty</th>
-                <th className="px-5 py-3">Value</th>
-                <th className="px-5 py-3">Ordered</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o) => {
-                const t = STATUS_TONE[o.status];
-                return (
-                  <tr key={o.id} className="border-b border-line">
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{o.po_number}</td>
-                    <td className="px-5 py-3.5">{o.supplier}</td>
-                    <td className="px-5 py-3.5 text-muted">{o.product}</td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{(o.qty_ml / 1000).toFixed(1)} L</td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs">{(o.qty_ml * o.unit_cost).toFixed(0)} birr</td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-muted">{o.ordered_at}</td>
-                    <td className="px-5 py-3.5">
-                      <span className="px-2.5 py-1 rounded-full text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-wide" style={{ background: t.bg, color: t.fg }}>
-                        {o.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      {o.status === "pending" && (
-                        <div className="flex gap-2">
-                          <button onClick={() => setReceiveId(o.id)} className="px-3 py-1.5 rounded-xl text-xs bg-[#123A34] text-accent flex items-center gap-1.5">
-                            <PackageCheck size={13} /> Receive
-                          </button>
-                          <button onClick={() => cancelOrder(o.id)} className="px-3 py-1.5 rounded-xl text-xs bg-[#3A1A1A] text-red flex items-center gap-1.5">
-                            <X size={13} /> Cancel
-                          </button>
-                        </div>
-                      )}
-                      {o.status !== "pending" && <span className="text-xs text-muted">{o.received_at ?? "—"}</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
 
-      {/* Receive Stock */}
-      {tab === "Receive Stock" && (
-        <div className="rounded-2xl border border-line bg-panel overflow-hidden">
-          <div className="p-5">
-            <h3 className="font-[family-name:var(--font-display)] text-lg">Current Inventory Levels</h3>
-            <p className="text-xs text-muted mt-1">Mark a pending purchase order as received to update stock.</p>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-muted border-t border-b border-line">
-                <th className="px-5 py-3">Product</th>
-                <th className="px-5 py-3">Category</th>
-                <th className="px-5 py-3">Current Stock</th>
-                <th className="px-5 py-3">Min Stock</th>
-                <th className="px-5 py-3">Supplier</th>
-                <th className="px-5 py-3">Expiry</th>
-                <th className="px-5 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(liveInventory ?? INVENTORY).map((item) => {
-                const pct = Math.min(100, (item.total_ml / (item.min_stock_ml * 3)) * 100);
-                const tone = item.status === "ok" ? "var(--accent)" : item.status === "low" ? "var(--amber)" : "var(--red)";
-                return (
-                  <tr key={item.id} className="border-b border-line">
-                    <td className="px-5 py-3.5">{item.product_name}</td>
-                    <td className="px-5 py-3.5 text-muted">{item.category}</td>
-                    <td className="px-5 py-3.5 w-44">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-1.5 rounded-full bg-panel-2">
-                          <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: tone }} />
-                        </div>
-                        <span className="font-[family-name:var(--font-mono)] text-xs">{(item.total_ml / 1000).toFixed(1)} L</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-muted">{(item.min_stock_ml / 1000).toFixed(1)} L</td>
-                    <td className="px-5 py-3.5 text-muted">{item.supplier}</td>
-                    <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-muted">{item.expiry_date}</td>
-                    <td className="px-5 py-3.5">
-                      <span className="px-2.5 py-1 rounded-full text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-wide"
-                        style={{ background: item.status === "ok" ? "#123A34" : item.status === "low" ? "#3A2E14" : "#3A1A1A", color: tone }}>
-                        {item.status}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Suppliers */}
-      {tab === "Suppliers" && (
-        <div className="rounded-2xl border border-line bg-panel overflow-hidden">
-          <div className="p-5 flex items-center justify-between">
-            <h3 className="font-[family-name:var(--font-display)] text-lg">Suppliers</h3>
-            <button onClick={() => setShowSupplier(true)} className="px-4 py-2 rounded-xl text-sm font-medium bg-accent text-[#06201D] flex items-center gap-2">
-              <Plus size={16} /> Add Supplier
-            </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-muted border-t border-b border-line">
-                <th className="px-5 py-3">Supplier</th>
-                <th className="px-5 py-3">Contact</th>
-                <th className="px-5 py-3">Products Supplied</th>
-              </tr>
-            </thead>
-            <tbody>
-              {suppliers.map((s) => (
-                <tr key={s.id} className="border-b border-line">
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-panel-2 text-violet text-xs font-[family-name:var(--font-display)]">
-                        {s.name[0]}
-                      </div>
-                      {s.name}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3.5 font-[family-name:var(--font-mono)] text-xs text-muted">{s.contact}</td>
-                  <td className="px-5 py-3.5 text-muted text-xs">{s.products}</td>
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>PO Number</th>
+                  <th>Supplier</th>
+                  <th>Product</th>
+                  <th>Quantity</th>
+                  <th>Unit Cost</th>
+                  <th>Total Cost</th>
+                  <th>Status</th>
+                  <th>Order Date</th>
+                  <th>Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {orders.map((po) => {
+                  const tone = STATUS_TONE[po.status] || STATUS_TONE.pending;
+                  return (
+                    <tr key={po.id}>
+                      <td className="font-mono text-xs font-bold text-accent">{po.po_number}</td>
+                      <td className="font-medium text-text">{po.supplier_name}</td>
+                      <td className="text-xs text-muted">{po.product_name}</td>
+                      <td className="font-mono font-bold text-text">
+                        {(po.qty_ml / 1000).toFixed(1)} L ({po.qty_ml.toLocaleString()} ml)
+                      </td>
+                      <td className="font-mono text-xs">{po.unit_cost} ETB/ml</td>
+                      <td className="font-mono font-bold text-text">
+                        {(po.total_cost || po.qty_ml * po.unit_cost).toLocaleString()} ETB
+                      </td>
+                      <td>
+                        <span
+                          className="badge text-[10px]"
+                          style={{ background: tone.bg, color: tone.fg }}
+                        >
+                          {po.status}
+                        </span>
+                      </td>
+                      <td className="text-xs text-muted font-mono">
+                        {new Date(po.ordered_at).toLocaleDateString()}
+                      </td>
+                      <td>
+                        {po.status === "pending" ? (
+                          <button
+                            onClick={() => handleReceiveStock(po.id)}
+                            className="btn btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
+                          >
+                            <PackageCheck size={13} />
+                            <span>Receive Stock</span>
+                          </button>
+                        ) : (
+                          <span className="text-xs text-accent font-medium">✓ In Inventory</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* New PO Modal */}
+      {/* TAB 3: RECEIVE STOCK */}
+      {tab === "Receive Stock" && (
+        <div className="space-y-4">
+          <div className="card p-6 space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold text-text font-[family-name:var(--font-display)]">
+                Incoming Shipments & Stock Intake
+              </h3>
+              <p className="text-xs text-muted">
+                Inspect delivered barrels or bottles and click Receive to immediately update active inventory balances.
+              </p>
+            </div>
+
+            {pendingPOs.length === 0 ? (
+              <div className="py-12 flex flex-col items-center justify-center text-center text-muted">
+                <PackageCheck size={36} className="text-accent/40 mb-2" />
+                <p className="font-medium text-text">All purchase orders have been received!</p>
+                <p className="text-xs mt-1">Create a new Purchase Order to schedule incoming deliveries.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {pendingPOs.map((po) => (
+                  <div key={po.id} className="p-4 rounded-xl border border-line bg-panel-2 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-accent">{po.po_number}</span>
+                      <span className="badge badge-pending">Awaiting Intake</span>
+                    </div>
+
+                    <div>
+                      <p className="font-bold text-text text-base">{po.product_name}</p>
+                      <p className="text-xs text-muted">Supplier: {po.supplier_name}</p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-panel grid grid-cols-3 gap-2 text-xs font-mono">
+                      <div>
+                        <span className="text-[10px] text-muted block">Volume</span>
+                        <span className="font-bold text-text">{(po.qty_ml / 1000).toFixed(1)} L</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-muted block">Unit Rate</span>
+                        <span className="font-bold text-text">{po.unit_cost} ETB</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-muted block">Total Cost</span>
+                        <span className="font-bold text-accent">
+                          {(po.qty_ml * po.unit_cost).toLocaleString()} ETB
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleReceiveStock(po.id)}
+                      className="btn btn-primary w-full py-2 flex items-center justify-center gap-2"
+                    >
+                      <PackageCheck size={16} />
+                      <span>Confirm & Deposit into Warehouse</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: SUPPLIERS */}
+      {tab === "Suppliers" && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {suppliers.map((s) => (
+            <div key={s.id} className="card p-5 space-y-3.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-accent/15 text-accent flex items-center justify-center shrink-0">
+                      <Building2 size={18} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-text text-base">{s.name}</h4>
+                      <span className="badge badge-approved text-[9px]">Active Vendor</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-2 text-xs text-muted">
+                  <div className="flex items-center gap-2">
+                    <Phone size={13} className="text-accent shrink-0" />
+                    <span className="text-text font-mono font-medium">{s.contact}</span>
+                  </div>
+                  {s.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail size={13} className="text-accent shrink-0" />
+                      <span className="truncate">{s.email}</span>
+                    </div>
+                  )}
+                  {s.address && (
+                    <div className="flex items-center gap-2">
+                      <MapPin size={13} className="text-accent shrink-0" />
+                      <span>{s.address}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 p-2.5 rounded-lg bg-panel-2 border border-line text-xs">
+                  <span className="text-[10px] text-muted uppercase block font-semibold">Key Products:</span>
+                  <p className="text-text mt-0.5">{s.products}</p>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-line flex items-center gap-2">
+                <a
+                  href={`tel:${s.contact}`}
+                  className="btn btn-ghost flex-1 py-1.5 text-xs flex items-center justify-center gap-1.5"
+                >
+                  <Phone size={13} />
+                  <span>Call Vendor</span>
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* CREATE PO MODAL */}
       {showPO && (
-        <Modal title="New Purchase Order" onClose={() => setShowPO(false)}>
-          <div className="space-y-4">
-            {[
-              { label: "Supplier", key: "supplier", placeholder: "e.g. Chemtech PLC" },
-              { label: "Product", key: "product", placeholder: "e.g. Foam Shampoo Concentrate" },
-              { label: "Quantity (ml)", key: "qty_ml", placeholder: "e.g. 20000" },
-              { label: "Unit Cost (birr/ml)", key: "unit_cost", placeholder: "e.g. 0.18" },
-            ].map(({ label, key, placeholder }) => (
-              <div key={key}>
-                <label className="text-xs uppercase tracking-wide text-muted">{label}</label>
+        <Modal title="Create Purchase Order" onClose={() => setShowPO(false)}>
+          <form onSubmit={handleCreatePO} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="section-label">Supplier *</label>
+              <select
+                value={poForm.supplier_id}
+                onChange={(e) => setPoForm({ ...poForm, supplier_id: e.target.value })}
+                className="input"
+                required
+              >
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="section-label">Chemical Product *</label>
+              <select
+                value={poForm.inventory_id}
+                onChange={(e) => {
+                  const targetInv = inventory.find((i) => i.id === e.target.value);
+                  setPoForm({
+                    ...poForm,
+                    inventory_id: e.target.value,
+                    unit_cost: String(targetInv?.unit_cost || "0.188"),
+                  });
+                }}
+                className="input"
+                required
+              >
+                {inventory.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.product_name} ({i.total_ml} ml in stock)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="section-label">Volume (ml) *</label>
                 <input
-                  value={poForm[key as keyof typeof poForm]}
-                  onChange={(e) => setPoForm((f) => ({ ...f, [key]: e.target.value }))}
-                  placeholder={placeholder}
-                  className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent"
+                  type="number"
+                  value={poForm.qty_ml}
+                  onChange={(e) => setPoForm({ ...poForm, qty_ml: e.target.value })}
+                  placeholder="e.g. 50000 (50L)"
+                  className="input font-mono"
+                  required
                 />
               </div>
-            ))}
-            <div className="flex gap-3 pt-2">
-              <button onClick={createPO} className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-accent text-[#06201D]">Create Order</button>
-              <button onClick={() => setShowPO(false)} className="flex-1 py-2.5 rounded-xl text-sm border border-line text-muted">Cancel</button>
+
+              <div className="space-y-1.5">
+                <label className="section-label">Unit Cost (ETB/ml)</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={poForm.unit_cost}
+                  onChange={(e) => setPoForm({ ...poForm, unit_cost: e.target.value })}
+                  className="input font-mono"
+                  required
+                />
+              </div>
             </div>
-          </div>
+
+            {poForm.qty_ml && (
+              <div className="p-3 rounded-xl bg-panel-2 border border-line flex justify-between text-xs font-mono">
+                <span className="text-muted">Total Order Value:</span>
+                <span className="font-bold text-accent text-sm">
+                  {(Number(poForm.qty_ml) * Number(poForm.unit_cost || 0)).toLocaleString()} ETB
+                </span>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="section-label">Notes</label>
+              <input
+                value={poForm.notes}
+                onChange={(e) => setPoForm({ ...poForm, notes: e.target.value })}
+                placeholder="e.g. Urgent weekend delivery"
+                className="input"
+              />
+            </div>
+
+            <div className="pt-3 flex gap-2 justify-end">
+              <button type="button" onClick={() => setShowPO(false)} className="btn btn-ghost">
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                Issue Purchase Order
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
 
-      {/* Confirm Receive Modal */}
-      {receiveId && (
-        <Modal title="Confirm Stock Receipt" onClose={() => setReceiveId(null)}>
-          <p className="text-sm text-muted mb-5">Mark this order as received? This will update the inventory stock level.</p>
-          <div className="flex gap-3">
-            <button onClick={() => markReceived(receiveId)} className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-accent text-[#06201D]">Confirm Receipt</button>
-            <button onClick={() => setReceiveId(null)} className="flex-1 py-2.5 rounded-xl text-sm border border-line text-muted">Cancel</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* Add Supplier Modal */}
+      {/* ADD SUPPLIER MODAL */}
       {showSupplier && (
-        <Modal title="Add Supplier" onClose={() => setShowSupplier(false)}>
-          <div className="space-y-4">
-            {[
-              { label: "Company Name", key: "name", placeholder: "e.g. Chemtech PLC" },
-              { label: "Contact", key: "contact", placeholder: "+251 11 xxx xxxx" },
-              { label: "Products Supplied", key: "products", placeholder: "e.g. Foam Shampoo, Wax" },
-            ].map(({ label, key, placeholder }) => (
-              <div key={key}>
-                <label className="text-xs uppercase tracking-wide text-muted">{label}</label>
-                <input
-                  value={supForm[key as keyof typeof supForm]}
-                  onChange={(e) => setSupForm((f) => ({ ...f, [key]: e.target.value }))}
-                  placeholder={placeholder}
-                  className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent"
-                />
-              </div>
-            ))}
-            <div className="flex gap-3 pt-2">
-              <button onClick={addSupplier} className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-accent text-[#06201D]">Add Supplier</button>
-              <button onClick={() => setShowSupplier(false)} className="flex-1 py-2.5 rounded-xl text-sm border border-line text-muted">Cancel</button>
+        <Modal title="Add Chemical Supplier" onClose={() => setShowSupplier(false)}>
+          <form onSubmit={handleAddSupplier} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="section-label">Company Name *</label>
+              <input
+                value={supForm.name}
+                onChange={(e) => setSupForm({ ...supForm, name: e.target.value })}
+                placeholder="e.g. Habesha Chemical PLC"
+                className="input"
+                required
+              />
             </div>
-          </div>
+
+            <div className="space-y-1.5">
+              <label className="section-label">Phone Contact *</label>
+              <input
+                value={supForm.contact}
+                onChange={(e) => setSupForm({ ...supForm, contact: e.target.value })}
+                placeholder="+251 11..."
+                className="input font-mono"
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="section-label">Email Address</label>
+              <input
+                type="email"
+                value={supForm.email}
+                onChange={(e) => setSupForm({ ...supForm, email: e.target.value })}
+                placeholder="sales@company.et"
+                className="input"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="section-label">Supplied Products</label>
+              <input
+                value={supForm.products}
+                onChange={(e) => setSupForm({ ...supForm, products: e.target.value })}
+                placeholder="e.g. Foam Shampoo, Wax, Degreasers"
+                className="input"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="section-label">Warehouse Address</label>
+              <input
+                value={supForm.address}
+                onChange={(e) => setSupForm({ ...supForm, address: e.target.value })}
+                placeholder="e.g. Kaliti Industrial Zone, Addis Ababa"
+                className="input"
+              />
+            </div>
+
+            <div className="pt-3 flex gap-2 justify-end">
+              <button type="button" onClick={() => setShowSupplier(false)} className="btn btn-ghost">
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                Save Supplier
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
-
-      {toast && <div className="fixed bottom-6 right-6 fade-up rounded-xl px-4 py-3 text-sm bg-[var(--accent-dim)] text-accent z-50">{toast}</div>}
     </div>
   );
 }

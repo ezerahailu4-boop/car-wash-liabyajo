@@ -1,37 +1,51 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, X, Trash2, TrendingDown, Wallet, Calendar } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import {
+  Plus,
+  X,
+  Trash2,
+  TrendingDown,
+  Wallet,
+  Calendar,
+  Sparkles,
+  PieChart as PieIcon,
+  RefreshCw,
+  Building,
+  Zap,
+  Wrench,
+  Users,
+} from "lucide-react";
+import { DataStore } from "@/lib/data-store";
+import { Expense } from "@/lib/types";
 
-type Expense = {
-  id: string;
-  category: string;
-  amount: number;
-  description: string | null;
-  incurred_on: string;
-  created_at: string;
+const CATEGORIES = ["payroll", "maintenance", "utilities", "inventory_cost", "rent", "other"] as const;
+
+const CATEGORY_META: Record<string, { label: string; icon: React.ElementType; color: string }> = {
+  payroll: { label: "Payroll & Commission", icon: Users, color: "var(--accent)" },
+  maintenance: { label: "Equipment Maintenance", icon: Wrench, color: "var(--amber)" },
+  utilities: { label: "Water & Electricity", icon: Zap, color: "var(--sky-500)" },
+  inventory_cost: { label: "Chemical Restock", icon: Wallet, color: "var(--emerald-500)" },
+  rent: { label: "Bay Lease / Rent", icon: Building, color: "var(--purple-500)" },
+  other: { label: "Lounge & Supplies", icon: TrendingDown, color: "var(--muted)" },
 };
 
-const CATEGORIES = ["payroll", "maintenance", "utilities", "inventory_cost", "other"] as const;
-
-const CATEGORY_LABEL: Record<string, string> = {
-  payroll: "Payroll",
-  maintenance: "Maintenance",
-  utilities: "Utilities",
-  inventory_cost: "Inventory Cost",
-  other: "Other",
+const EMPTY = {
+  category: "payroll" as Expense["category"],
+  amount: "",
+  description: "",
+  incurred_on: new Date().toISOString().slice(0, 10),
 };
-
-const EMPTY = { category: "payroll" as string, amount: "", description: "", incurred_on: new Date().toISOString().slice(0, 10) };
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-line bg-panel p-6 shadow-2xl">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="font-[family-name:var(--font-display)] text-lg">{title}</h3>
-          <button onClick={onClose} className="text-muted hover:text-text"><X size={18} /></button>
+    <div className="modal-backdrop flex items-center justify-center p-4">
+      <div className="modal-content max-w-md w-full p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-line">
+          <h3 className="font-semibold text-lg text-text font-[family-name:var(--font-display)]">{title}</h3>
+          <button onClick={onClose} className="icon-btn">
+            <X size={16} />
+          </button>
         </div>
         {children}
       </div>
@@ -44,191 +58,265 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(EMPTY);
-  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [monthFilter, setMonthFilter] = useState(() => new Date().toISOString().slice(0, 7));
 
-  function notify(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000); }
+  function notify(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }
 
-  async function load() {
+  async function loadData() {
     setLoading(true);
-    const supabase = createClient();
-    try {
-      const { data, error } = await supabase
-        .from("expenses")
-        .select("id, category, amount, description, incurred_on, created_at")
-        .order("incurred_on", { ascending: false });
-      if (error) throw error;
-      setItems((data as Expense[]) ?? []);
-    } catch {
-      setItems([]);
-    }
+    const data = await DataStore.getExpenses();
+    setItems(data);
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    loadData();
+    window.addEventListener("washos_data_change", loadData);
+    return () => window.removeEventListener("washos_data_change", loadData);
+  }, []);
+
+  async function handleAddExpense(e: React.FormEvent) {
+    e.preventDefault();
+    const amt = Number(form.amount);
+    if (!amt || amt <= 0) {
+      notify("Please enter a valid expense amount.");
+      return;
+    }
+
+    await DataStore.createExpense({
+      category: form.category,
+      amount: amt,
+      description: form.description.trim() || null,
+      incurred_on: form.incurred_on,
+    });
+
+    notify("✓ Expense logged successfully.");
+    setShowAdd(false);
+    setForm(EMPTY);
+    await loadData();
+  }
+
+  async function handleDelete(id: string) {
+    if (confirm("Delete this expense record?")) {
+      await DataStore.deleteExpense(id);
+      notify("Expense deleted.");
+      await loadData();
+    }
+  }
 
   const filtered = items.filter((e) => e.incurred_on.startsWith(monthFilter));
   const total = filtered.reduce((sum, e) => sum + Number(e.amount), 0);
-  const byCategory = CATEGORIES.map((c) => ({
-    category: c,
-    total: filtered.filter((e) => e.category === c).reduce((s, e) => s + Number(e.amount), 0),
-  })).filter((c) => c.total > 0);
 
-  async function addExpense() {
-    const amt = Number(form.amount);
-    if (!form.category || !amt || amt <= 0) {
-      notify("Enter a category and a valid amount.");
-      return;
-    }
-    setSaving(true);
-    const supabase = createClient();
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      const { data, error } = await supabase.from("expenses").insert({
-        category: form.category,
-        amount: amt,
-        description: form.description || null,
-        incurred_on: form.incurred_on,
-        created_by: userData.user?.id ?? null,
-      }).select().single();
-      if (error) throw error;
-      setItems((prev) => [data as Expense, ...prev]);
-      notify("Expense logged.");
-      setShowAdd(false);
-      setForm(EMPTY);
-    } catch (err) {
-      notify(err instanceof Error ? err.message : "Could not save expense.");
-    }
-    setSaving(false);
-  }
-
-  async function removeExpense(id: string) {
-    const supabase = createClient();
-    setItems((prev) => prev.filter((e) => e.id !== id));
-    try {
-      await supabase.from("expenses").delete().eq("id", id);
-    } catch { /* optimistic */ }
-  }
+  const categoryBreakdown = CATEGORIES.map((cat) => {
+    const catTotal = filtered.filter((e) => e.category === cat).reduce((s, e) => s + Number(e.amount), 0);
+    const meta = CATEGORY_META[cat] || CATEGORY_META.other;
+    return {
+      cat,
+      label: meta.label,
+      total: catTotal,
+      percent: total > 0 ? Math.round((catTotal / total) * 100) : 0,
+      icon: meta.icon,
+      color: meta.color,
+    };
+  }).filter((c) => c.total > 0);
 
   return (
     <div className="space-y-6">
+      {/* Toast */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-xl px-4 py-3 bg-panel border border-line shadow-xl text-sm">{toast}</div>
+        <div className="fixed top-4 right-4 z-50 rounded-xl bg-panel border border-accent px-4 py-3 shadow-2xl fade-up flex items-center gap-3">
+          <Sparkles size={16} className="text-accent" />
+          <span className="text-sm font-medium text-text">{toast}</span>
+        </div>
       )}
 
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="font-[family-name:var(--font-display)] text-2xl">Expenses</h1>
-          <p className="text-sm text-muted mt-1">Track operating costs — payroll, maintenance, utilities, and more.</p>
+          <h2 className="text-2xl font-bold text-text font-[family-name:var(--font-display)]">
+            Operating Expenses & Overhead
+          </h2>
+          <p className="text-sm text-muted">
+            Track utility bills, payroll payouts, equipment maintenance, and chemical restocking costs.
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 rounded-xl px-3 py-2 bg-panel-2 border border-line">
-            <Calendar size={14} className="text-muted" />
-            <input type="month" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)}
-              className="bg-transparent text-sm outline-none" />
-          </div>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 rounded-xl text-sm font-medium bg-accent text-[#06201D] flex items-center gap-2">
-            <Plus size={16} /> Log Expense
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowAdd(true)} className="btn btn-primary">
+            <Plus size={16} />
+            <span>Log Expense</span>
+          </button>
+          <button onClick={loadData} className="icon-btn" title="Refresh">
+            <RefreshCw size={15} />
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-2xl p-5 border border-line bg-panel">
-          <div className="flex items-center gap-2 text-muted text-xs uppercase tracking-wide mb-2">
-            <Wallet size={14} /> Total This Month
-          </div>
-          <p className="font-[family-name:var(--font-mono)] text-2xl">{total.toLocaleString()} birr</p>
-        </div>
-        <div className="rounded-2xl p-5 border border-line bg-panel">
-          <div className="flex items-center gap-2 text-muted text-xs uppercase tracking-wide mb-2">
-            <TrendingDown size={14} /> By Category
-          </div>
-          {byCategory.length === 0 ? (
-            <p className="text-sm text-muted">No expenses logged yet.</p>
-          ) : (
-            <div className="space-y-1.5">
-              {byCategory.map((c) => (
-                <div key={c.category} className="flex items-center justify-between text-sm">
-                  <span className="text-muted">{CATEGORY_LABEL[c.category]}</span>
-                  <span className="font-[family-name:var(--font-mono)]">{c.total.toLocaleString()} birr</span>
-                </div>
-              ))}
+      {/* Overview Cards & Category Breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Total Expense Card */}
+        <div className="card p-6 flex flex-col justify-between border-l-4 border-l-red">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="section-label">Month Total</span>
+              <input
+                type="month"
+                value={monthFilter}
+                onChange={(e) => setMonthFilter(e.target.value)}
+                className="input py-1 px-2.5 text-xs w-auto font-mono"
+              />
             </div>
-          )}
+            <p className="text-3xl font-bold font-mono text-text">{total.toLocaleString()} ETB</p>
+            <p className="text-xs text-muted">Total operating expenses logged for {monthFilter}</p>
+          </div>
+
+          <div className="pt-4 border-t border-line text-xs text-muted flex justify-between">
+            <span>Logged Entries: {filtered.length}</span>
+            <span className="text-accent font-medium">Daily Avg: {Math.round(total / 30).toLocaleString()} ETB</span>
+          </div>
+        </div>
+
+        {/* Category Breakdown Bars */}
+        <div className="lg:col-span-2 card p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-text text-sm">Expenses by Category</h3>
+            <span className="text-xs font-mono text-muted">{categoryBreakdown.length} active categories</span>
+          </div>
+
+          <div className="space-y-3">
+            {categoryBreakdown.map((item) => (
+              <div key={item.cat} className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <item.icon size={14} className="text-accent" />
+                    <span className="font-medium text-text">{item.label}</span>
+                  </div>
+                  <span className="font-mono font-bold text-text">
+                    {item.total.toLocaleString()} ETB ({item.percent}%)
+                  </span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-panel-3 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all bg-accent"
+                    style={{ width: `${item.percent}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-line bg-panel overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-line text-left text-muted text-xs uppercase tracking-wide">
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3">Description</th>
-              <th className="px-4 py-3 text-right">Amount</th>
-              <th className="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-muted">Loading…</td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-muted">No expenses for this month.</td></tr>
-            ) : (
-              filtered.map((e) => (
-                <tr key={e.id} className="border-b border-line last:border-0">
-                  <td className="px-4 py-3 font-[family-name:var(--font-mono)] text-xs text-muted">{e.incurred_on}</td>
-                  <td className="px-4 py-3">{CATEGORY_LABEL[e.category] ?? e.category}</td>
-                  <td className="px-4 py-3 text-muted">{e.description || "—"}</td>
-                  <td className="px-4 py-3 text-right font-[family-name:var(--font-mono)]">{Number(e.amount).toLocaleString()} birr</td>
-                  <td className="px-4 py-3 text-right">
-                    <button onClick={() => removeExpense(e.id)} className="text-muted hover:text-[var(--red)]">
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      {/* Expense Entries Table */}
+      <div className="card overflow-hidden">
+        <div className="p-4 border-b border-line flex items-center justify-between">
+          <h3 className="font-semibold text-text">Expense Transactions</h3>
+          <span className="text-xs text-muted font-mono">{filtered.length} entries for this month</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Amount</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((e) => {
+                const meta = CATEGORY_META[e.category] || CATEGORY_META.other;
+                return (
+                  <tr key={e.id}>
+                    <td className="font-mono text-xs text-muted">{e.incurred_on}</td>
+                    <td>
+                      <span className="badge badge-approved text-[10px]">{meta.label}</span>
+                    </td>
+                    <td className="text-xs text-text">{e.description || "General operational expense"}</td>
+                    <td className="font-mono font-bold text-text">{Number(e.amount).toLocaleString()} ETB</td>
+                    <td>
+                      <button
+                        onClick={() => handleDelete(e.id)}
+                        className="icon-btn text-red/70 hover:text-red hover:border-red"
+                        title="Delete expense"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
+      {/* LOG EXPENSE MODAL */}
       {showAdd && (
-        <Modal title="Log Expense" onClose={() => setShowAdd(false)}>
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs uppercase tracking-wide text-muted">Category</label>
-              <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent">
-                {CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}
+        <Modal title="Log Operational Expense" onClose={() => setShowAdd(false)}>
+          <form onSubmit={handleAddExpense} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="section-label">Category *</label>
+              <select
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value as Expense["category"] })}
+                className="input"
+              >
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {CATEGORY_META[cat]?.label || cat}
+                  </option>
+                ))}
               </select>
             </div>
-            <div>
-              <label className="text-xs uppercase tracking-wide text-muted">Amount (birr)</label>
-              <input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent font-[family-name:var(--font-mono)]" placeholder="0.00" />
+
+            <div className="space-y-1.5">
+              <label className="section-label">Amount (ETB) *</label>
+              <input
+                type="number"
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                placeholder="e.g. 4500"
+                className="input font-mono"
+                required
+              />
             </div>
-            <div>
-              <label className="text-xs uppercase tracking-wide text-muted">Date</label>
-              <input type="date" value={form.incurred_on} onChange={(e) => setForm((f) => ({ ...f, incurred_on: e.target.value }))}
-                className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent" />
+
+            <div className="space-y-1.5">
+              <label className="section-label">Date Incurred</label>
+              <input
+                type="date"
+                value={form.incurred_on}
+                onChange={(e) => setForm({ ...form, incurred_on: e.target.value })}
+                className="input font-mono"
+                required
+              />
             </div>
-            <div>
-              <label className="text-xs uppercase tracking-wide text-muted">Description (optional)</label>
-              <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm bg-panel-2 border border-line outline-none focus:ring-2 focus:ring-accent" placeholder="e.g. May generator fuel" />
+
+            <div className="space-y-1.5">
+              <label className="section-label">Description / Invoice Reference</label>
+              <textarea
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="e.g. High pressure pump nozzle repair at Addis Machinery"
+                className="input h-20 resize-none"
+              />
             </div>
-            <div className="flex gap-3 pt-2">
-              <button onClick={addExpense} disabled={saving} className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-accent text-[#06201D] disabled:opacity-50">
-                {saving ? "Saving…" : "Log Expense"}
-              </button>
-              <button onClick={() => setShowAdd(false)} className="flex-1 py-2.5 rounded-xl text-sm border border-line text-muted">
+
+            <div className="pt-3 flex gap-2 justify-end">
+              <button type="button" onClick={() => setShowAdd(false)} className="btn btn-ghost">
                 Cancel
               </button>
+              <button type="submit" className="btn btn-primary">
+                Save Expense
+              </button>
             </div>
-          </div>
+          </form>
         </Modal>
       )}
     </div>

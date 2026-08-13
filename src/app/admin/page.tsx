@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Power, Users, ShieldCheck, Settings2, X, Check, Droplet, TrendingUp, Bell, RefreshCw } from "lucide-react";
+import { Plus, Pencil, Power, Users, ShieldCheck, X, Check, Droplet, TrendingUp, Bell, RefreshCw } from "lucide-react";
 import { VEHICLE_TYPES, WASHERS } from "@/lib/mock";
 import { createClient } from "@/lib/supabase/client";
 
@@ -83,7 +83,7 @@ export default function AdminPage() {
     } catch { /* fall through */ }
     // mock fallback
     const { STAFF } = await import("@/lib/mock");
-    setStaff(STAFF.map((s) => ({ id: s.id, name: s.name, role: s.role, phone: s.phone, active: s.active, joined: s.joined })));
+    setStaff(STAFF.map((s) => ({ id: s.id, name: s.full_name, role: s.role, phone: s.phone || "", active: s.active, joined: s.created_at || "" })));
     setStaffLoading(false);
   }
 
@@ -146,18 +146,18 @@ export default function AdminPage() {
         const { REQUESTS } = await import("@/lib/mock");
         setSoapReqs(REQUESTS.map((r) => ({
           id: r.id, request_number: r.request_number,
-          washer_name: r.washer, product_name: r.product, notes: "—",
-          quantity_requested: r.qty, quantity_approved: null,
-          status: r.status, created_at: "",
+          washer_name: r.washer_name || "Unknown", product_name: r.product_name || "—", notes: r.notes || "—",
+          quantity_requested: r.quantity_requested, quantity_approved: r.quantity_approved,
+          status: r.status, created_at: r.created_at || "",
         })));
       }
     } catch {
       const { REQUESTS } = await import("@/lib/mock");
       setSoapReqs(REQUESTS.map((r) => ({
         id: r.id, request_number: r.request_number,
-        washer_name: r.washer, product_name: r.product, notes: "—",
-        quantity_requested: r.qty, quantity_approved: null,
-        status: r.status, created_at: "",
+        washer_name: r.washer_name || "Unknown", product_name: r.product_name || "—", notes: r.notes || "—",
+        quantity_requested: r.quantity_requested, quantity_approved: r.quantity_approved,
+        status: r.status, created_at: r.created_at || "",
       })));
     }
     setReqsLoading(false);
