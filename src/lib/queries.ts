@@ -60,7 +60,7 @@ export async function fetchRequests() {
   const supabase = createClient();
   const { data } = await supabase
     .from("soap_requests")
-    .select("id, request_number, status, quantity_requested, quantity_approved, created_at, washer_id, profiles(full_name), inventory(product_name)")
+    .select("id, request_number, status, quantity_requested, quantity_approved, notes, created_at, washer_id, profiles(full_name), inventory(product_name)")
     .order("created_at", { ascending: false });
   return data ?? [];
 }
@@ -109,7 +109,7 @@ export async function fetchWasherStats(washerId: string) {
       .eq("washer_id", washerId),
     supabase
       .from("soap_requests")
-      .select("id, request_number, status, quantity_requested, quantity_approved, created_at, inventory(product_name)")
+      .select("id, request_number, status, quantity_requested, quantity_approved, notes, created_at, inventory(product_name)")
       .eq("washer_id", washerId)
       .order("created_at", { ascending: false }),
   ]);
