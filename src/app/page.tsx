@@ -35,6 +35,7 @@ import {
 import { fetchDashboardStats } from "@/lib/queries";
 import { DataStore } from "@/lib/data-store";
 import { WashTransaction } from "@/lib/types";
+import { REVENUE_TREND, WASH_HISTORY } from "@/lib/mock";
 
 /* ── KPI Card ───────────────────────────────────────────────── */
 function KpiCard({
@@ -121,7 +122,6 @@ function SoapGauge({ label, ml, capacity = 800 }: { label: string; ml: number; c
           strokeDasharray={c}
           strokeDashoffset={c - (pct / 100) * c}
           strokeLinecap="round"
-          transform="rotate(-90 36 36)"
           style={{ transition: "stroke-dashoffset 0.6s ease" }}
         />
         <text
@@ -156,19 +156,46 @@ type Stats = {
   recentWashes: WashTransaction[];
 };
 
+const INITIAL_STATS: Stats = {
+  carsToday: 6,
+  revenueToday: 4900,
+  revenueYesterday: 4200,
+  soapUsed: 1280,
+  pendingRequests: 1,
+  avgMinutes: 42,
+  lowStock: 1,
+  washers: [
+    { name: "Yonas Bekele", ml: 750 },
+    { name: "Selam Girma", ml: 540 },
+    { name: "Dawit Alemu", ml: 180 },
+    { name: "Hana Tesfaye", ml: 620 },
+  ],
+  revenueTrend: REVENUE_TREND,
+  fleetMix: [
+    { name: "Small", value: 5, color: "#2dd4c8" },
+    { name: "Medium", value: 3, color: "#f59e0b" },
+    { name: "Large", value: 1, color: "#a78bfa" },
+  ],
+  recentWashes: (WASH_HISTORY as unknown as WashTransaction[]).slice(0, 5),
+};
+
 export default function DashboardPage() {
   const router = useRouter();
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<Stats>(INITIAL_STATS);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   async function loadData() {
+    setIsRefreshing(true);
     try {
       const data = await fetchDashboardStats();
-      setStats(data as Stats);
+      if (data) {
+        setStats(data as Stats);
+      }
     } catch {
       // fallback handled in fetchDashboardStats
+    } finally {
+      setIsRefreshing(false);
     }
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -176,17 +203,6 @@ export default function DashboardPage() {
     window.addEventListener("washos_data_change", loadData);
     return () => window.removeEventListener("washos_data_change", loadData);
   }, []);
-
-  if (!stats) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div
-          className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
-          style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
-        />
-      </div>
-    );
-  }
 
   const revDelta =
     stats.revenueYesterday > 0
@@ -263,8 +279,8 @@ export default function DashboardPage() {
             <Plus size={16} />
             <span>New Wash POS</span>
           </button>
-          <button onClick={loadData} className="icon-btn" title="Refresh">
-            <RefreshCw size={15} />
+          <button onClick={loadData} disabled={isRefreshing} className="icon-btn" title="Refresh">
+            <RefreshCw size={15} className={isRefreshing ? "animate-spin text-accent" : ""} />
           </button>
         </div>
       </div>

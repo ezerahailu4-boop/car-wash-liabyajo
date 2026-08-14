@@ -9,7 +9,6 @@ import {
   ShieldCheck,
   Store,
   Sparkles,
-  Users,
   CheckCircle2,
   Lock,
   ArrowRight,
@@ -47,49 +46,115 @@ export default function LoginPage() {
   // Admin form
   const [adminEmail, setAdminEmail] = useState("admin@washos.et");
   const [adminPassword, setAdminPassword] = useState("admin123");
+  const [adminError, setAdminError] = useState<string | null>(null);
 
   // Store form
-  const [storePin, setStorePin] = useState("8821");
   const [storeEmail, setStoreEmail] = useState("store@washos.et");
+  const [storePin, setStorePin] = useState("8821");
+  const [storeError, setStoreError] = useState<string | null>(null);
 
   // Employee form
   const [selectedAttendant, setSelectedAttendant] = useState(ATTENDANTS[0].id);
   const [attendantPin, setAttendantPin] = useState(ATTENDANTS[0].pin);
+  const [employeeError, setEmployeeError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
 
-  // 1. Admin Login Handler (Instant, <50ms)
-  function handleAdminLogin(e: React.FormEvent) {
+  // 1. Admin Login Handler
+  async function handleAdminLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    // Background async sync with Supabase without blocking the UI
+    setAdminError(null);
     try {
       const supabase = createClient();
-      supabase.auth.signInWithPassword({ email: adminEmail, password: adminPassword }).catch(() => {});
-    } catch { /* ignore */ }
-
-    setSessionAndGo("administrator", "System Admin", "/");
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: adminEmail,
+        password: adminPassword,
+      });
+      if (!error && data?.user) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("role, full_name, id")
+          .eq("id", data.user.id)
+          .single();
+        const role = profileData?.role ?? "administrator";
+        const name = profileData?.full_name ?? "System Admin";
+        setSessionAndGo(role, name, "/", data.user.id);
+        return;
+      }
+      // If auth user is not in Supabase auth table, use demo admin session fallback
+      setSessionAndGo("administrator", "System Admin", "/", "admin-demo-id");
+    } catch (err: any) {
+      console.warn("Supabase auth fallback active:", err);
+      setSessionAndGo("administrator", "System Admin", "/", "admin-demo-id");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  // 2. Storekeeper Login Handler (Instant, <50ms)
-  function handleStoreLogin(e: React.FormEvent) {
+  // 2. Storekeeper Login Handler
+  async function handleStoreLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
+    setStoreError(null);
     try {
       const supabase = createClient();
-      supabase.auth.signInWithPassword({ email: storeEmail, password: "password123" }).catch(() => {});
-    } catch { /* ignore */ }
-
-    setSessionAndGo("store_keeper", "Liya Hailu (Store)", "/store");
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: storeEmail,
+        password: "password123",
+      });
+      if (!error && data?.user) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("role, full_name, id")
+          .eq("id", data.user.id)
+          .single();
+        const role = profileData?.role ?? "store_keeper";
+        const name = profileData?.full_name ?? "Liya Hailu (Store)";
+        setSessionAndGo(role, name, "/store", data.user.id);
+        return;
+      }
+      // Fallback
+      setSessionAndGo("store_keeper", "Liya Hailu (Store)", "/store", "store-demo-id");
+    } catch (err: any) {
+      console.warn("Store auth fallback active:", err);
+      setSessionAndGo("store_keeper", "Liya Hailu (Store)", "/store", "store-demo-id");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  // 3. Employee / Attendant Login Handler (Instant, <50ms)
-  function handleEmployeeLogin(e: React.FormEvent) {
+  // 3. Employee / Attendant Login Handler
+  async function handleEmployeeLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const target = ATTENDANTS.find((a) => a.id === selectedAttendant) || ATTENDANTS[0];
-
-    setSessionAndGo("washer", target.name, "/portal", target.id);
+    setEmployeeError(null);
+    try {
+      const attendant = ATTENDANTS.find((a) => a.id === selectedAttendant) || ATTENDANTS[0];
+      const supabase = createClient();
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: `${attendant.id}@washos.et`,
+        password: attendant.pin,
+      });
+      if (!error && data?.user) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("role, full_name, id")
+          .eq("id", data.user.id)
+          .single();
+        const role = profileData?.role ?? "washer";
+        const name = profileData?.full_name ?? attendant.name;
+        setSessionAndGo(role, name, "/portal", data.user.id);
+        return;
+      }
+      // Fallback
+      setSessionAndGo("washer", attendant.name, "/portal", attendant.id);
+    } catch (err: any) {
+      const attendant = ATTENDANTS.find((a) => a.id === selectedAttendant) || ATTENDANTS[0];
+      setSessionAndGo("washer", attendant.name, "/portal", attendant.id);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -205,6 +270,10 @@ export default function LoginPage() {
                 />
               </div>
 
+              {adminError && (
+                <p className="text-xs text-red-500 bg-red-50 px-3 py-1 rounded">{adminError}</p>
+              )}
+
               <button
                 type="submit"
                 disabled={loading}
@@ -252,6 +321,10 @@ export default function LoginPage() {
                   required
                 />
               </div>
+
+              {storeError && (
+                <p className="text-xs text-red-500 bg-red-50 px-3 py-1 rounded">{storeError}</p>
+              )}
 
               <button
                 type="submit"
@@ -320,6 +393,10 @@ export default function LoginPage() {
                   required
                 />
               </div>
+
+              {employeeError && (
+                <p className="text-xs text-red-500 bg-red-50 px-3 py-1 rounded">{employeeError}</p>
+              )}
 
               <button
                 type="submit"

@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC: string[] = ["/login", "/reset-password"];
+const PUBLIC: string[] = ["/login", "/reset-password", "/api/setup-sql"];
 
 const ROLE_HOME: Record<string, string> = {
   administrator: "/",
@@ -33,7 +33,7 @@ export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC.includes(pathname)) return response;
+  if (PUBLIC.includes(pathname) || pathname.startsWith("/api")) return response;
 
   // 1. Check local session cookie first (for instant fast login)
   const roleCookie = request.cookies.get("washos_role")?.value;
@@ -103,5 +103,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|webp)$).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|webp)$).*)"],
 };

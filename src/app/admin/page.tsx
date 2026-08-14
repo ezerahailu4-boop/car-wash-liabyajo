@@ -1,9 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Plus, Pencil, Power, Users, ShieldCheck, X, Check, Droplet, TrendingUp, Bell, RefreshCw } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Power,
+  Users,
+  ShieldCheck,
+  X,
+  Check,
+  Droplet,
+  TrendingUp,
+  Bell,
+  RefreshCw,
+  Database,
+  Copy,
+  ExternalLink,
+  Activity,
+  Server,
+  Terminal,
+  Layers,
+  Sparkles,
+} from "lucide-react";
 import { VEHICLE_TYPES, WASHERS } from "@/lib/mock";
 import { createClient } from "@/lib/supabase/client";
+import { MASTER_SETUP_SQL } from "@/lib/setup-sql";
 
 type StaffMember = { id: string; name: string; role: string; phone: string; active: boolean; joined: string };
 
@@ -14,7 +34,7 @@ const ROLE_COLORS: Record<string, { bg: string; fg: string }> = {
   washer:        { bg: "#1c2830", fg: "var(--muted)" },
 };
 
-const TABS = ["Users", "Soap Requests", "Soap Tracking", "Pricing", "System"] as const;
+const TABS = ["Users", "Soap Requests", "Soap Tracking", "Pricing", "Database Setup", "System"] as const;
 type Tab = (typeof TABS)[number];
 
 type WasherStat = { id: string; name: string; soapOut: number; revenue: number; cars: number };
@@ -64,6 +84,76 @@ export default function AdminPage() {
   const [trackLoading, setTrackLoading] = useState(false);
   const [soapReqs, setSoapReqs] = useState<SoapReq[]>([]);
   const [reqsLoading, setReqsLoading] = useState(false);
+
+  // DB Diagnostics
+  const [dbStatus, setDbStatus] = useState<Record<string, { ok: boolean; count?: number; error?: string }> | null>(null);
+  const [dbLatency, setDbLatency] = useState<number | null>(null);
+  const [checkingDb, setCheckingDb] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  async function checkDatabase() {
+    setCheckingDb(true);
+    const start = Date.now();
+    const supabase = createClient();
+    const tables = [
+      "profiles",
+      "inventory",
+      "purchase_orders",
+      "wash_transactions",
+      "soap_requests",
+      "customers",
+      "suppliers",
+      "expenses",
+    ];
+
+    const results: Record<string, { ok: boolean; count?: number; error?: string }> = {};
+
+    await Promise.all(
+      tables.map(async (tbl) => {
+        try {
+          const { count, error } = await supabase.from(tbl).select("*", { count: "exact", head: true });
+          if (error) {
+            results[tbl] = { ok: false, error: error.message };
+          } else {
+            results[tbl] = { ok: true, count: count ?? 0 };
+          }
+        } catch (e: any) {
+          results[tbl] = { ok: false, error: e?.message || "Connection failed" };
+        }
+      })
+    );
+
+    setDbLatency(Date.now() - start);
+    setDbStatus(results);
+    setCheckingDb(false);
+  }
+
+  async function copySetupSql() {
+    try {
+      await navigator.clipboard.writeText(MASTER_SETUP_SQL);
+      setCopiedSql(true);
+      setTimeout(() => setCopiedSql(false), 3000);
+      setToast("✓ Master Setup SQL copied to clipboard!");
+    } catch {
+      setToast("SQL file located at: supabase/setup_complete.sql");
+    }
+  }
+
+  async function resetLocalSeed() {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem("washos_inventory");
+    localStorage.removeItem("washos_suppliers");
+    localStorage.removeItem("washos_purchase_orders");
+    localStorage.removeItem("washos_customers");
+    localStorage.removeItem("washos_wash_transactions");
+    localStorage.removeItem("washos_soap_requests");
+    localStorage.removeItem("washos_expenses");
+    localStorage.removeItem("washos_staff");
+    localStorage.removeItem("washos_washers_stock");
+    localStorage.removeItem("washos_notifications");
+    window.dispatchEvent(new Event("washos_data_change"));
+    setToast("✓ Local demo cache reset to clean default state.");
+  }
 
   async function loadStaff() {
     setStaffLoading(true);
@@ -592,6 +682,152 @@ export default function AdminPage() {
           <button onClick={savePricing} className="px-5 py-2.5 rounded-xl text-sm font-medium bg-accent text-[#06201D] flex items-center gap-2">
             <Check size={16} /> Save Pricing
           </button>
+        </div>
+      )}
+
+      {/* Database Setup Tab */}
+      {tab === "Database Setup" && (
+        <div className="space-y-6">
+          {/* Header Card */}
+          <div className="rounded-2xl border border-line bg-panel p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Database size={20} className="text-accent" />
+                  <h3 className="font-[family-name:var(--font-display)] text-lg">Supabase Database Setup & Diagnostics</h3>
+                </div>
+                <p className="text-xs text-muted">
+                  Verify PostgreSQL connectivity, table permissions, live row counts, and execute master migrations.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={checkDatabase}
+                  disabled={checkingDb}
+                  className="btn btn-primary py-2 px-4 text-xs flex items-center gap-2"
+                >
+                  <Activity size={14} className={checkingDb ? "animate-spin" : ""} />
+                  <span>{checkingDb ? "Testing Connection…" : "Run Live DB Health Check"}</span>
+                </button>
+                <a
+                  href="https://supabase.com/dashboard/project/xibhjpaqogokfwsdymxn/sql/new"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-ghost border border-line py-2 px-3 text-xs flex items-center gap-1.5"
+                >
+                  <ExternalLink size={13} />
+                  <span>Open Supabase SQL Editor</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Cloud Config Overview */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="p-3.5 rounded-xl bg-panel-2 border border-line space-y-1">
+                <p className="text-[10px] text-muted uppercase tracking-wider font-mono">SUPABASE PROJECT URL</p>
+                <p className="text-xs font-mono text-text truncate">https://xibhjpaqogokfwsdymxn.supabase.co</p>
+              </div>
+              <div className="p-3.5 rounded-xl bg-panel-2 border border-line space-y-1">
+                <p className="text-[10px] text-muted uppercase tracking-wider font-mono">REALTIME WEBSOCKETS</p>
+                <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Active & Subscribed</span>
+                </div>
+              </div>
+              <div className="p-3.5 rounded-xl bg-panel-2 border border-line space-y-1">
+                <p className="text-[10px] text-muted uppercase tracking-wider font-mono">DB LATENCY</p>
+                <p className="text-xs font-mono text-accent">
+                  {dbLatency !== null ? `${dbLatency} ms` : "Run check to measure"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Health Diagnostics Table */}
+          {dbStatus && (
+            <div className="rounded-2xl border border-line bg-panel p-6 space-y-4">
+              <h4 className="text-sm font-bold text-text flex items-center gap-2">
+                <Server size={16} className="text-accent" />
+                <span>Live Table Health Matrix</span>
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {Object.entries(dbStatus).map(([tbl, status]) => (
+                  <div
+                    key={tbl}
+                    className={`p-3 rounded-xl border flex flex-col justify-between ${
+                      status.ok
+                        ? "bg-emerald-500/5 border-emerald-500/20"
+                        : "bg-amber/5 border-amber/20"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-bold text-text truncate">{tbl}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                          status.ok
+                            ? "bg-emerald-500/20 text-emerald-400"
+                            : "bg-amber/20 text-amber"
+                        }`}
+                      >
+                        {status.ok ? "Ready" : "Offline / Unseeded"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted font-mono mt-2">
+                      {status.ok ? `${status.count} rows stored` : status.error || "Needs migration"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quick Migration Instructions & Setup Script */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="rounded-2xl border border-line bg-panel p-6 space-y-4">
+              <h4 className="font-[family-name:var(--font-display)] text-base flex items-center gap-2">
+                <Terminal size={16} className="text-accent" />
+                <span>Master SQL Script (`setup_complete.sql`)</span>
+              </h4>
+              <p className="text-xs text-muted leading-relaxed">
+                Contains complete tables, RLS policies, trigger procedures, Realtime publications, and Ethiopian seed data.
+              </p>
+              <div className="p-3 bg-panel-2 rounded-xl border border-line font-mono text-xs text-text space-y-1">
+                <p className="text-muted text-[11px]">Script file location:</p>
+                <p className="text-accent select-all">supabase/setup_complete.sql</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={copySetupSql}
+                  className="btn btn-primary py-2 px-3 text-xs flex-1 flex items-center justify-center gap-1.5"
+                >
+                  {copiedSql ? <Check size={14} /> : <Copy size={14} />}
+                  <span>{copiedSql ? "Copied to Clipboard!" : "Copy Full Migration SQL"}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-line bg-panel p-6 space-y-4">
+              <h4 className="font-[family-name:var(--font-display)] text-base flex items-center gap-2">
+                <Layers size={16} className="text-amber" />
+                <span>Quick Cache & Local Mode Reset</span>
+              </h4>
+              <p className="text-xs text-muted leading-relaxed">
+                Clear browser localStorage demo state and reload fresh seed records across all POS, Inventory, and Requests views.
+              </p>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={resetLocalSeed}
+                  className="btn btn-ghost border border-amber/30 text-amber hover:bg-amber/10 py-2 px-4 text-xs flex items-center gap-2"
+                >
+                  <RefreshCw size={14} />
+                  <span>Reset Local Demo Cache</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

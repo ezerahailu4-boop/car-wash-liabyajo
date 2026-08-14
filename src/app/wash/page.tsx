@@ -21,6 +21,7 @@ import {
 import { VEHICLE_TYPES, WASH_SERVICES } from "@/lib/mock";
 import { DataStore } from "@/lib/data-store";
 import { PaymentMethod, WashTransaction, VehicleType, WashService } from "@/lib/types";
+import ThermalReceipt from "@/components/ThermalReceipt";
 
 type Washer = { id: string; name: string; soap: number; phone?: string };
 
@@ -46,6 +47,7 @@ export default function WashEntryPage() {
   const [washQueue, setWashQueue] = useState<WashTransaction[]>([]);
   const [recentWashes, setRecentWashes] = useState<WashTransaction[]>([]);
   const [activeReceipt, setActiveReceipt] = useState<WashTransaction | null>(null);
+  const [thermalReceipt, setThermalReceipt] = useState<WashTransaction | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -785,20 +787,41 @@ export default function WashEntryPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-3 pt-2 no-print">
+            <div className="flex items-center gap-2 pt-2 no-print">
               <button
-                onClick={() => window.print()}
-                className="btn btn-primary flex-1 flex items-center justify-center gap-2"
+                type="button"
+                onClick={() => setThermalReceipt(activeReceipt)}
+                className="btn btn-primary flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold"
               >
-                <Printer size={16} />
-                <span>Print Receipt</span>
+                <Printer size={15} />
+                <span>Print 58mm POS Slip</span>
               </button>
-              <button onClick={() => setActiveReceipt(null)} className="btn btn-ghost">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="btn btn-ghost border border-line py-2 text-xs"
+                title="Print Full Page"
+              >
+                Full Page
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveReceipt(null)}
+                className="btn btn-ghost py-2 text-xs"
+              >
                 Close
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* 58mm / 80mm ESC/POS Thermal Receipt Modal */}
+      {thermalReceipt && (
+        <ThermalReceipt
+          wash={thermalReceipt}
+          onClose={() => setThermalReceipt(null)}
+        />
       )}
     </div>
   );

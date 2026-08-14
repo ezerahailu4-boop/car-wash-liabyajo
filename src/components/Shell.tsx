@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchNotifications, markNotificationRead } from "@/lib/queries";
+import { initWashOSRealtime } from "@/lib/supabase/realtime";
 
 const ALL_NAV = [
   { href: "/",          label: "Dashboard",  icon: LayoutGrid, roles: ["administrator", "manager"] },
@@ -135,42 +136,45 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   useEffect(() => { setDrawerOpen(false); }, [pathname]);
 
   useEffect(() => {
-    if (profileLoaded.current) return;
-    profileLoaded.current = true;
-    const supabase = createClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) {
-        if (typeof window !== "undefined") {
-          try {
-            const raw = localStorage.getItem("washos_active_session");
-            if (raw) {
-              const sess = JSON.parse(raw);
-              if (sess.role) setRole(sess.role);
-              if (sess.name) {
-                setUserName(sess.name);
-                setUserInitials(sess.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase());
-              }
+    initWashOSRealtime();
+
+    if (!profileLoaded.current) {
+      profileLoaded.current = true;
+      if (typeof window !== "undefined") {
+        try {
+          const raw = localStorage.getItem("washos_active_session");
+          if (raw) {
+            const sess = JSON.parse(raw);
+            if (sess.role) setRole(sess.role);
+            if (sess.name) {
+              setUserName(sess.name);
+              setUserInitials(sess.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase());
             }
-          } catch { /* ignore */ }
+          }
+        } catch { /* ignore */ }
+      }
+
+      const supabase = createClient();
+      supabase.auth.getUser().then(async ({ data: { user } }) => {
+        if (user) {
+          const { data: profile } = await supabase
+            .from("profiles").select("role, full_name").eq("id", user.id).single();
+          if (profile) {
+            setRole(profile.role);
+            const fullName = profile.full_name ?? "User";
+            setUserName(fullName);
+            setUserInitials(fullName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase());
+          }
         }
-        const notifs = await fetchNotifications();
-        setNotifications(notifs as Notification[]);
-        return;
-      }
-      const { data: profile } = await supabase
-        .from("profiles").select("role, full_name").eq("id", user.id).single();
-      if (profile) {
-        setRole(profile.role);
-        const fullName = profile.full_name ?? "User";
-        setUserName(fullName);
-        setUserInitials(fullName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase());
-        const notifs = await fetchNotifications(user.id);
-        setNotifications(notifs as Notification[]);
-      } else {
-        const notifs = await fetchNotifications();
-        setNotifications(notifs as Notification[]);
-      }
-    });
+        fetchNotifications().then((notifs) => setNotifications(notifs as Notification[]));
+      });
+    }
+
+    const handleDataChange = () => {
+      fetchNotifications().then((notifs) => setNotifications(notifs as Notification[]));
+    };
+    window.addEventListener("washos_data_change", handleDataChange);
+    return () => window.removeEventListener("washos_data_change", handleDataChange);
   }, []);
 
   useEffect(() => {
