@@ -241,20 +241,47 @@ alter table notifications enable row level security;
 alter table audit_logs enable row level security;
 
 -- Open policies for seamless frontend CRUD
-create policy if not exists "allow_all_profiles" on profiles for all using (true) with check (true);
-create policy if not exists "allow_all_vehicle_types" on vehicle_types for all using (true) with check (true);
-create policy if not exists "allow_all_wash_services" on wash_services for all using (true) with check (true);
-create policy if not exists "allow_all_customers" on customers for all using (true) with check (true);
-create policy if not exists "allow_all_vehicles" on vehicles for all using (true) with check (true);
-create policy if not exists "allow_all_suppliers" on suppliers for all using (true) with check (true);
-create policy if not exists "allow_all_inventory" on inventory for all using (true) with check (true);
-create policy if not exists "allow_all_pos" on purchase_orders for all using (true) with check (true);
-create policy if not exists "allow_all_washer_inv" on washer_inventory for all using (true) with check (true);
-create policy if not exists "allow_all_soap_requests" on soap_requests for all using (true) with check (true);
-create policy if not exists "allow_all_washes" on wash_transactions for all using (true) with check (true);
-create policy if not exists "allow_all_expenses" on expenses for all using (true) with check (true);
-create policy if not exists "allow_all_notifs" on notifications for all using (true) with check (true);
-create policy if not exists "allow_all_audit" on audit_logs for all using (true) with check (true);
+drop policy if exists "allow_all_profiles" on profiles;
+create policy "allow_all_profiles" on profiles for all using (true) with check (true);
+
+drop policy if exists "allow_all_vehicle_types" on vehicle_types;
+create policy "allow_all_vehicle_types" on vehicle_types for all using (true) with check (true);
+
+drop policy if exists "allow_all_wash_services" on wash_services;
+create policy "allow_all_wash_services" on wash_services for all using (true) with check (true);
+
+drop policy if exists "allow_all_customers" on customers;
+create policy "allow_all_customers" on customers for all using (true) with check (true);
+
+drop policy if exists "allow_all_vehicles" on vehicles;
+create policy "allow_all_vehicles" on vehicles for all using (true) with check (true);
+
+drop policy if exists "allow_all_suppliers" on suppliers;
+create policy "allow_all_suppliers" on suppliers for all using (true) with check (true);
+
+drop policy if exists "allow_all_inventory" on inventory;
+create policy "allow_all_inventory" on inventory for all using (true) with check (true);
+
+drop policy if exists "allow_all_pos" on purchase_orders;
+create policy "allow_all_pos" on purchase_orders for all using (true) with check (true);
+
+drop policy if exists "allow_all_washer_inv" on washer_inventory;
+create policy "allow_all_washer_inv" on washer_inventory for all using (true) with check (true);
+
+drop policy if exists "allow_all_soap_requests" on soap_requests;
+create policy "allow_all_soap_requests" on soap_requests for all using (true) with check (true);
+
+drop policy if exists "allow_all_washes" on wash_transactions;
+create policy "allow_all_washes" on wash_transactions for all using (true) with check (true);
+
+drop policy if exists "allow_all_expenses" on expenses;
+create policy "allow_all_expenses" on expenses for all using (true) with check (true);
+
+drop policy if exists "allow_all_notifs" on notifications;
+create policy "allow_all_notifs" on notifications for all using (true) with check (true);
+
+drop policy if exists "allow_all_audit" on audit_logs;
+create policy "allow_all_audit" on audit_logs for all using (true) with check (true);
 
 -- 10. Enable Supabase Realtime Publication
 do $$
