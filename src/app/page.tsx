@@ -35,7 +35,6 @@ import {
 import { fetchDashboardStats } from "@/lib/queries";
 import { DataStore } from "@/lib/data-store";
 import { WashTransaction } from "@/lib/types";
-import { REVENUE_TREND, WASH_HISTORY } from "@/lib/mock";
 
 /* ── KPI Card ───────────────────────────────────────────────── */
 function KpiCard({
@@ -157,26 +156,21 @@ type Stats = {
 };
 
 const INITIAL_STATS: Stats = {
-  carsToday: 6,
-  revenueToday: 4900,
-  revenueYesterday: 4200,
-  soapUsed: 1280,
-  pendingRequests: 1,
-  avgMinutes: 42,
-  lowStock: 1,
-  washers: [
-    { name: "Yonas Bekele", ml: 750 },
-    { name: "Selam Girma", ml: 540 },
-    { name: "Dawit Alemu", ml: 180 },
-    { name: "Hana Tesfaye", ml: 620 },
-  ],
-  revenueTrend: REVENUE_TREND,
+  carsToday: 0,
+  revenueToday: 0,
+  revenueYesterday: 0,
+  soapUsed: 0,
+  pendingRequests: 0,
+  avgMinutes: 0,
+  lowStock: 0,
+  washers: [],
+  revenueTrend: [],
   fleetMix: [
-    { name: "Small", value: 5, color: "#2dd4c8" },
-    { name: "Medium", value: 3, color: "#f59e0b" },
-    { name: "Large", value: 1, color: "#a78bfa" },
+    { name: "Small", value: 0, color: "#2dd4c8" },
+    { name: "Medium", value: 0, color: "#f59e0b" },
+    { name: "Large", value: 0, color: "#a78bfa" },
   ],
-  recentWashes: (WASH_HISTORY as unknown as WashTransaction[]).slice(0, 5),
+  recentWashes: [],
 };
 
 export default function DashboardPage() {

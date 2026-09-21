@@ -27,7 +27,7 @@ import {
   Lock,
   Clock,
 } from "lucide-react";
-import { VEHICLE_TYPES, WASHERS } from "@/lib/mock";
+import { DEFAULT_VEHICLE_TYPES as VEHICLE_TYPES } from "@/lib/catalog";
 import { createClient } from "@/lib/supabase/client";
 import { MASTER_SETUP_SQL } from "@/lib/setup-sql";
 import { DataStore } from "@/lib/data-store";

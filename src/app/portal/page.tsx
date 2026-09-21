@@ -20,7 +20,7 @@ import {
   Wallet,
   Calendar,
 } from "lucide-react";
-import { VEHICLE_TYPES } from "@/lib/mock";
+import { DEFAULT_VEHICLE_TYPES as VEHICLE_TYPES } from "@/lib/catalog";
 import { DataStore } from "@/lib/data-store";
 import { SoapRequest, WashStatus, WashTransaction } from "@/lib/types";
 

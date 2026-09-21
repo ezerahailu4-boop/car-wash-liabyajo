@@ -1,6 +1,5 @@
 import { DataStore } from "./data-store";
 import { createClient } from "./supabase/client";
-import { REVENUE_TREND } from "./mock";
 
 export async function fetchDashboardStats() {
   const [washes, inventory, requests, washers, expenses] = await Promise.all([
@@ -25,14 +24,13 @@ export async function fetchDashboardStats() {
 
   const avgMinutes = todayWashes.length
     ? Math.round(todayWashes.reduce((sum, w) => sum + (w.actual_minutes || 45), 0) / todayWashes.length)
-    : 42;
+    : 0;
 
-  // Revenue trend calculation
+  // Revenue trend calculation from real transactions and expenses
   const dayMap: Record<string, { revenue: number; expenses: number }> = {};
   for (let i = 6; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86400000);
     const dayStr = d.toISOString().slice(0, 10);
-    const dayName = d.toLocaleDateString("en", { weekday: "short" });
     dayMap[dayStr] = { revenue: 0, expenses: 0 };
   }
 
@@ -62,21 +60,21 @@ export async function fetchDashboardStats() {
   });
 
   const fleetMix = [
-    { name: "Small", value: fleetMixMap.small || 5, color: "#2dd4c8" },
-    { name: "Medium", value: fleetMixMap.medium || 3, color: "#f59e0b" },
-    { name: "Large", value: fleetMixMap.large || 1, color: "#a78bfa" },
+    { name: "Small", value: fleetMixMap.small, color: "#2dd4c8" },
+    { name: "Medium", value: fleetMixMap.medium, color: "#f59e0b" },
+    { name: "Large", value: fleetMixMap.large, color: "#a78bfa" },
   ];
 
   return {
-    carsToday: todayWashes.length || 6,
-    revenueToday: revenueToday || 4900,
-    revenueYesterday: revenueYesterday || 4200,
-    soapUsed: soapUsedToday || 1280,
+    carsToday: todayWashes.length,
+    revenueToday,
+    revenueYesterday,
+    soapUsed: soapUsedToday,
     pendingRequests,
     avgMinutes,
     lowStock: lowStockCount,
     washers: washers.map((w) => ({ name: w.name, ml: w.soap })),
-    revenueTrend: revenueTrend.some((r) => r.revenue > 0) ? revenueTrend : REVENUE_TREND,
+    revenueTrend,
     fleetMix,
     recentWashes: washes.slice(0, 5),
   };

@@ -26,7 +26,7 @@ import {
   Award,
   Phone,
 } from "lucide-react";
-import { VEHICLE_TYPES, WASH_SERVICES } from "@/lib/mock";
+import { DEFAULT_VEHICLE_TYPES as VEHICLE_TYPES, DEFAULT_WASH_SERVICES as WASH_SERVICES } from "@/lib/catalog";
 import { DataStore } from "@/lib/data-store";
 import { PaymentMethod, WashTransaction, VehicleType, WashService, WashStatus } from "@/lib/types";
 import ThermalReceipt from "@/components/ThermalReceipt";

@@ -1,19 +1,38 @@
 "use client";
-
 import { createClient } from "./supabase/client";
-import {
-  VEHICLE_TYPES,
-  WASH_SERVICES,
-  INVENTORY as SEED_INVENTORY,
-  SUPPLIERS as SEED_SUPPLIERS,
-  PURCHASE_ORDERS as SEED_PO,
-  WASHERS as SEED_WASHERS,
-  STAFF as SEED_STAFF,
-  CUSTOMERS as SEED_CUSTOMERS,
-  REQUESTS as SEED_REQUESTS,
-  EXPENSES as SEED_EXPENSES,
-  WASH_HISTORY as SEED_WASHES,
-} from "./mock";
+import { DEFAULT_VEHICLE_TYPES, DEFAULT_WASH_SERVICES } from "./catalog";
+
+// Fallback seed constants are now clean empty datasets (no mock data)
+const SEED_INVENTORY: InventoryItem[] = [];
+const SEED_SUPPLIERS: Supplier[] = [];
+const SEED_PO: PurchaseOrder[] = [];
+const SEED_WASHERS: any[] = [];
+const SEED_STAFF: Profile[] = [];
+const SEED_CUSTOMERS: Customer[] = [];
+const SEED_REQUESTS: SoapRequest[] = [];
+const SEED_EXPENSES: Expense[] = [];
+const SEED_WASHES: WashTransaction[] = [];
+
+// Automatic one-time purge of old mock seed caches from browser localStorage
+if (typeof window !== "undefined") {
+  const REAL_DATA_KEY = "washos_v4_real_data_only";
+  if (!localStorage.getItem(REAL_DATA_KEY)) {
+    [
+      "washos_inventory",
+      "washos_suppliers",
+      "washos_purchase_orders",
+      "washos_customers",
+      "washos_wash_transactions",
+      "washos_soap_requests",
+      "washos_expenses",
+      "washos_staff",
+      "washos_washers_stock",
+      "washos_notifications",
+      "washos_services",
+    ].forEach((k) => localStorage.removeItem(k));
+    localStorage.setItem(REAL_DATA_KEY, "true");
+  }
+}
 import {
   Customer,
   Expense,
@@ -944,42 +963,33 @@ export const DataStore = {
   > {
     return supabaseCall(
       (async () => {
-        const washes = await DataStore.getWashTransactions();
+        const supabase = createClient();
+        const [washes, profilesRes] = await Promise.all([
+          DataStore.getWashTransactions(),
+          supabase.from("profiles").select("*").order("full_name"),
+        ]);
+
         const today = new Date().toISOString().slice(0, 10);
         const todayWashes = washes.filter((w) => w.started_at.startsWith(today) && w.status !== "cancelled");
-        const washerStocks = getLocal<Record<string, number>>(STORAGE_KEYS.WASHERS_STOCK, {
-          "w-1": 750,
-          "w-2": 540,
-          "w-3": 180,
-          "w-4": 620,
-        });
+        const staff = profilesRes.data || [];
+        const washerStocks = getLocal<Record<string, number>>(STORAGE_KEYS.WASHERS_STOCK, {});
 
-        const list = SEED_WASHERS.map((w) => {
-          const myToday = todayWashes.filter((tw) => tw.washer_id === w.id || tw.washer_name === w.name);
+        const list = staff.map((p: any) => {
+          const myToday = todayWashes.filter((tw) => tw.washer_id === p.id || tw.washer_name === p.full_name);
           const revenueToday = myToday.reduce((s, tw) => s + tw.price, 0);
           return {
-            id: w.id,
-            name: w.name,
-            soap: washerStocks[w.id] ?? w.soap,
+            id: p.id,
+            name: p.full_name,
+            soap: washerStocks[p.id] ?? 800,
             carsToday: myToday.length,
             revenueToday,
             commissionToday: Math.round(revenueToday * 0.2), // 20% commission
-            phone: w.phone,
+            phone: p.phone || undefined,
           };
         });
         return { data: list, error: null };
       })(),
-      () => {
-        return SEED_WASHERS.map((w) => ({
-          id: w.id,
-          name: w.name,
-          soap: w.soap,
-          carsToday: w.carsToday,
-          revenueToday: w.revenueToday,
-          commissionToday: Math.round(w.revenueToday * 0.2),
-          phone: w.phone,
-        }));
-      }
+      () => []
     );
   },
 
@@ -1109,10 +1119,32 @@ export const DataStore = {
 
   // ── SERVICES & CATALOG ─────────────────────────────────────
   getServices(): WashService[] {
-    return WASH_SERVICES;
+    return DEFAULT_WASH_SERVICES;
   },
 
   getVehicleTypes() {
-    return VEHICLE_TYPES;
+    return DEFAULT_VEHICLE_TYPES;
+  },
+
+  async fetchServices(): Promise<WashService[]> {
+    return supabaseCall<WashService[]>(
+      (async () => {
+        const supabase = createClient();
+        const { data, error } = await supabase.from("wash_services").select("*").order("name");
+        return { data: data && data.length > 0 ? (data as WashService[]) : DEFAULT_WASH_SERVICES, error };
+      })(),
+      () => DEFAULT_WASH_SERVICES
+    );
+  },
+
+  async fetchVehicleTypes() {
+    return supabaseCall(
+      (async () => {
+        const supabase = createClient();
+        const { data, error } = await supabase.from("vehicle_types").select("*").order("default_price");
+        return { data: data && data.length > 0 ? data : DEFAULT_VEHICLE_TYPES, error };
+      })(),
+      () => DEFAULT_VEHICLE_TYPES
+    );
   },
 };
