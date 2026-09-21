@@ -112,6 +112,8 @@ export type SoapRequest = {
 
 export type PaymentMethod = "cash" | "telebirr" | "cbe_birr" | "card" | "account";
 
+export type WashStatus = "queued" | "in_progress" | "drying" | "ready" | "completed" | "cancelled";
+
 export type WashTransaction = {
   id: string;
   receipt_number?: string;
@@ -121,13 +123,16 @@ export type WashTransaction = {
   washer_id: string;
   washer_name?: string;
   customer_name?: string;
+  customer_phone?: string;
   price: number;
   soap_used_ml: number;
   payment_method: PaymentMethod;
   payment_status: "paid" | "unpaid";
+  txn_ref?: string; // Telebirr / CBE Birr transaction reference number
+  commission_amount?: number; // Attendant commission
   services?: string[];
   bay_number?: number;
-  status: "queued" | "in_progress" | "completed" | "cancelled";
+  status: WashStatus;
   started_at: string;
   completed_at: string | null;
   actual_minutes?: number | null;

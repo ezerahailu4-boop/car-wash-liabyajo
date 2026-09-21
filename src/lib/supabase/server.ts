@@ -5,8 +5,8 @@ import { cookies } from "next/headers";
  * Creates a Supabase client optimized for Server Components and Server Actions.
  * It reads/writes cookies from the incoming request and outgoing response.
  */
-export function createSupabaseServerClient() {
-  const cookieStore = cookies();
+export async function createSupabaseServerClient() {
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

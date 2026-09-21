@@ -2,60 +2,60 @@
 
 /* ─── Light Mode ───────────────────────────────────────────── */
 :root {
-  --bg:        #f0f4f8;
+  --bg:        #f8fafc;
   --panel:     #ffffff;
-  --panel-2:   #f5f8fb;
-  --panel-3:   #eaf0f6;
+  --panel-2:   #f1f5f9;
+  --panel-3:   #e2e8f0;
   --line:      #e2e8f0;
   --line-2:    #cbd5e1;
-  --text:      #0f1923;
+  --text:      #0f172a;
   --text-2:    #334155;
   --muted:     #64748b;
   --muted-2:   #94a3b8;
-  --accent:    #0ea5a0;
-  --accent-2:  #0d9490;
-  --accent-dim:#d0faf8;
+  --accent:    #0d9488;
+  --accent-2:  #0f766e;
+  --accent-dim:#ccfbf1;
   --amber:     #d97706;
   --amber-dim: #fef3c7;
-  --red:       #dc2626;
-  --red-dim:   #fee2e2;
+  --red:       #e11d48;
+  --red-dim:   #ffe4e6;
   --violet:    #7c3aed;
   --violet-dim:#ede9fe;
-  --green:     #16a34a;
-  --green-dim: #dcfce7;
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
-  --shadow:    0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
-  --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.05);
-  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.06);
+  --green:     #059669;
+  --green-dim: #d1fae5;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow:    0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.04);
+  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.05);
 }
 
-/* ─── Dark Mode ─────────────────────────────────────────────── */
+/* ─── Dark Mode (Sleek Obsidian & Slate) ────────────────────── */
 .dark {
-  --bg:        #0b1117;
-  --panel:     #131c24;
-  --panel-2:   #192330;
-  --panel-3:   #1e2c3a;
-  --line:      #1e2c3a;
-  --line-2:    #263545;
-  --text:      #e8f0f7;
-  --text-2:    #b8cad9;
-  --muted:     #7a9ab0;
-  --muted-2:   #526a7c;
-  --accent:    #2dd4c8;
-  --accent-2:  #22c0b4;
-  --accent-dim:#0e3530;
+  --bg:        #090d16;
+  --panel:     #0f172a;
+  --panel-2:   #172033;
+  --panel-3:   #1e293b;
+  --line:      #1e293b;
+  --line-2:    #334155;
+  --text:      #f8fafc;
+  --text-2:    #cbd5e1;
+  --muted:     #94a3b8;
+  --muted-2:   #64748b;
+  --accent:    #14b8a6;
+  --accent-2:  #2dd4c8;
+  --accent-dim:#134e4a33;
   --amber:     #f59e0b;
-  --amber-dim: #2d1f06;
-  --red:       #f87171;
-  --red-dim:   #2d0a0a;
+  --amber-dim: #451a0333;
+  --red:       #f43f5e;
+  --red-dim:   #4c051933;
   --violet:    #a78bfa;
-  --violet-dim:#1e133a;
-  --green:     #4ade80;
-  --green-dim: #0a2d14;
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.3);
-  --shadow:    0 4px 6px -1px rgb(0 0 0 / 0.35);
-  --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.5);
+  --violet-dim:#2e106533;
+  --green:     #10b981;
+  --green-dim: #064e3b33;
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4);
+  --shadow:    0 4px 6px -1px rgb(0 0 0 / 0.45);
+  --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.6);
 }
 
 /* ─── Tailwind Theme Mapping ────────────────────────────────── */
@@ -139,7 +139,49 @@ body {
 .stagger-5 { animation-delay: 0.25s; }
 .stagger-6 { animation-delay: 0.3s; }
 
-/* ─── Reusable component tokens ─────────────────────────────── */
+/* Reusable component tokens */
+
+/* Glassmorphism & Modern Shadcn helpers */
+.glass-panel {
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.glass-card {
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+.glow-emerald {
+  box-shadow: 0 0 20px -3px rgba(16, 185, 129, 0.35);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 20px -3px rgba(6, 182, 212, 0.35);
+}
+
+.glow-amber {
+  box-shadow: 0 0 20px -3px rgba(245, 158, 11, 0.35);
+}
+
+.glow-violet {
+  box-shadow: 0 0 20px -3px rgba(139, 92, 246, 0.35);
+}
+
+/* Tactile Big Touch Button for Bay workers (wet hands) */
+.btn-touch {
+  min-height: 52px;
+  padding: 0.85rem 1.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 14px;
+  letter-spacing: 0.01em;
+  user-select: none;
+  touch-action: manipulation;
+}
 
 /* Card */
 .card {

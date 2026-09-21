@@ -4,35 +4,85 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
-  LayoutGrid, Droplet, Box, Bell, Users, BarChart3,
-  LogOut, ShieldCheck, Store, UserCircle, X,
-  Menu, Sun, Moon, ChevronRight, Receipt, Sparkles,
+  LayoutGrid,
+  Droplet,
+  Box,
+  Bell,
+  Users,
+  BarChart3,
+  LogOut,
+  ShieldCheck,
+  Store,
+  UserCircle,
+  X,
+  Menu,
+  Sun,
+  Moon,
+  ChevronRight,
+  Receipt,
+  Sparkles,
+  Layers,
+  ArrowRightLeft,
+  CheckCircle2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchNotifications, markNotificationRead } from "@/lib/queries";
 import { initWashOSRealtime } from "@/lib/supabase/realtime";
 
-const ALL_NAV = [
-  { href: "/",          label: "Dashboard",  icon: LayoutGrid, roles: ["administrator", "manager"] },
-  { href: "/wash",      label: "Wash Entry", icon: Droplet,    roles: ["administrator", "manager"] },
-  { href: "/inventory", label: "Inventory",  icon: Box,        roles: ["administrator", "manager"] },
-  { href: "/requests",  label: "Requests",   icon: Bell,       roles: ["administrator", "manager"] },
-  { href: "/employees", label: "Employees",  icon: Users,      roles: ["administrator", "manager"] },
-  { href: "/customers", label: "Customers",  icon: UserCircle, roles: ["administrator", "manager"] },
-  { href: "/expenses",  label: "Expenses",   icon: Receipt,    roles: ["administrator", "manager"] },
-  { href: "/reports",   label: "Reports",    icon: BarChart3,  roles: ["administrator", "manager"] },
-  { href: "/store",     label: "Store",      icon: Store,      roles: ["administrator", "store_keeper"] },
-  { href: "/portal",    label: "My Portal",  icon: Sparkles,   roles: ["washer"] },
-  { href: "/admin",     label: "Admin",      icon: ShieldCheck,roles: ["administrator"] },
+type NavGroup = {
+  section: string;
+  items: {
+    href: string;
+    label: string;
+    icon: React.ElementType;
+    badge?: string;
+    roles: string[];
+  }[];
+};
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    section: "Operations",
+    items: [
+      { href: "/", label: "Dashboard", icon: LayoutGrid, roles: ["administrator", "manager"] },
+      { href: "/wash", label: "Live Bays & POS", icon: Droplet, badge: "Live", roles: ["administrator", "manager"] },
+      { href: "/customers", label: "Customers", icon: UserCircle, roles: ["administrator", "manager"] },
+    ],
+  },
+  {
+    section: "Chemical Warehouse",
+    items: [
+      { href: "/store", label: "Store Warehouse", icon: Store, roles: ["administrator", "store_keeper"] },
+      { href: "/inventory", label: "Chemical Stock", icon: Box, roles: ["administrator", "manager"] },
+      { href: "/requests", label: "Refill Requests", icon: Bell, roles: ["administrator", "manager"] },
+    ],
+  },
+  {
+    section: "Finance & Reports",
+    items: [
+      { href: "/expenses", label: "Expenses & Cash", icon: Receipt, roles: ["administrator", "manager"] },
+      { href: "/reports", label: "Financial Reports", icon: BarChart3, roles: ["administrator", "manager"] },
+    ],
+  },
+  {
+    section: "Admin & Team",
+    items: [
+      { href: "/admin", label: "Admin Hub", icon: ShieldCheck, roles: ["administrator"] },
+      { href: "/employees", label: "Staff & Commission", icon: Users, roles: ["administrator", "manager"] },
+      { href: "/portal", label: "Attendant Portal", icon: Sparkles, roles: ["administrator", "washer"] },
+    ],
+  },
 ];
 
 const WASHER_ROUTES = ["/portal"];
-const STORE_ROUTES  = ["/store"];
+const STORE_ROUTES = ["/store"];
 
 /* ── Theme Toggle ─────────────────────────────────────────── */
 function ThemeToggle() {
   const [dark, setDark] = useState(false);
-  useEffect(() => { setDark(document.documentElement.classList.contains("dark")); }, []);
+  useEffect(() => {
+    setDark(document.documentElement.classList.contains("dark"));
+  }, []);
   function toggle() {
     const next = !dark;
     setDark(next);
@@ -43,18 +93,31 @@ function ThemeToggle() {
     <button
       onClick={toggle}
       aria-label="Toggle theme"
-      className="icon-btn"
+      className="icon-btn rounded-xl border border-line hover:border-line-2 transition-colors"
     >
-      {dark ? <Sun size={15} /> : <Moon size={15} />}
+      {dark ? <Sun size={15} className="text-amber" /> : <Moon size={15} className="text-muted" />}
     </button>
   );
 }
 
-/* ── Locked layout (washer / store keeper) ────────────────── */
-function LockedLayout({ label, icon: Icon, name, role, children }: {
-  label: string; icon: React.ElementType; name: string; role: string; children: React.ReactNode;
+/* ── Dedicated Portal Header (for Washer / Storekeeper focused view) ────────────────── */
+function DedicatedPortalShell({
+  label,
+  icon: Icon,
+  name,
+  role,
+  portalType,
+  children,
+}: {
+  label: string;
+  icon: React.ElementType;
+  name: string;
+  role: string;
+  portalType: "washer" | "store";
+  children: React.ReactNode;
 }) {
   const router = useRouter();
+
   async function signOut() {
     const supabase = createClient();
     try {
@@ -69,71 +132,123 @@ function LockedLayout({ label, icon: Icon, name, role, children }: {
       window.location.href = "/login";
     }
   }
+
+  function switchToRole(targetRole: string, path: string) {
+    if (typeof document !== "undefined") {
+      document.cookie = `washos_role=${targetRole}; path=/; max-age=604800; SameSite=Lax`;
+    }
+    if (typeof window !== "undefined") {
+      localStorage.setItem("washos_active_session", JSON.stringify({ role: targetRole, name }));
+      window.location.href = path;
+    }
+  }
+
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)" }}>
-      <header
-        className="flex items-center justify-between px-5 py-3.5 sticky top-0 z-10"
-        style={{
-          background: "var(--panel)",
-          borderBottom: "1px solid var(--line)",
-          boxShadow: "var(--shadow-sm)",
-        }}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-xl flex items-center justify-center"
-            style={{ background: "var(--accent)" }}
-          >
-            <Icon size={15} className="text-white" />
+    <div className="min-h-screen flex flex-col bg-bg text-text selection:bg-accent selection:text-white">
+      <header className="flex items-center justify-between px-4 sm:px-8 py-3.5 sticky top-0 z-30 glass-panel border-b border-line shadow-sm">
+        <div className="flex items-center gap-3.5">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-accent text-slate-950 font-bold shadow-sm shadow-accent/20">
+            <Icon size={18} />
           </div>
           <div>
-            <p className="font-[family-name:var(--font-display)] text-sm font-semibold leading-none" style={{ color: "var(--text)" }}>
-              WashOS
-            </p>
-            <p className="text-[10px] mt-0.5" style={{ color: "var(--muted)", fontFamily: "var(--font-mono)" }}>
-              {label}
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-base tracking-tight font-[family-name:var(--font-display)] text-text">
+                WashOS
+              </span>
+              <span className="text-[10px] uppercase font-mono font-semibold px-2 py-0.5 rounded-md bg-panel-2 border border-line text-accent">
+                {label}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted font-mono hidden sm:block">
+              {portalType === "washer"
+                ? "Mobile Attendant Station · Wet-hands touch UI"
+                : "Chemical Inventory, Dispensing & Purchase Orders"}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <ThemeToggle />
-          <div className="hidden sm:flex flex-col items-end">
-            <p className="text-sm font-medium leading-none" style={{ color: "var(--text)" }}>{name}</p>
-            <p className="text-[11px] mt-0.5 capitalize" style={{ color: "var(--muted)" }}>{role.replace("_", " ")}</p>
+
+        <div className="flex items-center gap-2.5">
+          {/* Quick Switch back to Admin if user has permissions */}
+          <div className="hidden md:flex items-center gap-1.5 mr-2 bg-panel-2 p-1 rounded-xl border border-line text-xs">
+            <span className="text-[11px] text-muted px-2 font-mono">Portals:</span>
+            <button
+              onClick={() => switchToRole("administrator", "/admin")}
+              className="px-2.5 py-1 rounded-lg text-muted hover:text-text hover:bg-panel transition-all font-medium"
+            >
+              Admin
+            </button>
+            <button
+              onClick={() => switchToRole("administrator", "/")}
+              className="px-2.5 py-1 rounded-lg text-muted hover:text-text hover:bg-panel transition-all font-medium"
+            >
+              Bays POS
+            </button>
+            <button
+              onClick={() => switchToRole("store_keeper", "/store")}
+              className={`px-2.5 py-1 rounded-lg transition-all font-medium ${
+                portalType === "store" ? "bg-accent text-slate-950 font-semibold" : "text-muted hover:text-text"
+              }`}
+            >
+              Store
+            </button>
+            <button
+              onClick={() => switchToRole("washer", "/portal")}
+              className={`px-2.5 py-1 rounded-lg transition-all font-medium ${
+                portalType === "washer" ? "bg-accent text-slate-950 font-semibold" : "text-muted hover:text-text"
+              }`}
+            >
+              Washer
+            </button>
           </div>
-          <div
-            className="avatar w-9 h-9 text-sm"
-            style={{ background: "var(--accent)", color: "#041f1e" }}
-          >
+
+          <ThemeToggle />
+
+          <div className="hidden sm:flex flex-col items-end">
+            <p className="text-xs font-semibold text-text leading-none">{name}</p>
+            <span className="text-[10px] font-mono text-muted uppercase mt-0.5">
+              {role.replace("_", " ")}
+            </span>
+          </div>
+
+          <div className="w-8 h-8 rounded-xl bg-panel-2 border border-line flex items-center justify-center font-bold text-xs text-text">
             {name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
           </div>
-          <button onClick={signOut} className="icon-btn" aria-label="Sign out">
+
+          <button
+            onClick={signOut}
+            className="icon-btn text-muted hover:text-red border border-transparent hover:border-red/20 hover:bg-red-dim transition-all"
+            aria-label="Sign out"
+            title="Sign out"
+          >
             <LogOut size={15} />
           </button>
         </div>
       </header>
-      <main className="flex-1 p-4 sm:p-6 overflow-y-auto">{children}</main>
+
+      <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto">{children}</main>
     </div>
   );
 }
 
 type Notification = { id: string; message: string; type: string; read: boolean; created_at: string };
 
-/* ── Main Shell ───────────────────────────────────────────── */
+/* ── Main Executive Shell ─────────────────────────────────── */
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router   = useRouter();
+  const router = useRouter();
 
-  const [role, setRole]               = useState<string>("administrator");
-  const [userName, setUserName]       = useState("Admin");
+  const [role, setRole] = useState<string>("administrator");
+  const [userName, setUserName] = useState("Admin");
   const [userInitials, setUserInitials] = useState("AD");
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [showNotif, setShowNotif]     = useState(false);
-  const [drawerOpen, setDrawerOpen]   = useState(false);
-  const notifRef                      = useRef<HTMLDivElement>(null);
-  const profileLoaded                 = useRef(false);
+  const [showNotif, setShowNotif] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+  const profileLoaded = useRef(false);
 
-  useEffect(() => { setDrawerOpen(false); }, [pathname]);
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     initWashOSRealtime();
@@ -148,7 +263,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             if (sess.role) setRole(sess.role);
             if (sess.name) {
               setUserName(sess.name);
-              setUserInitials(sess.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase());
+              setUserInitials(
+                sess.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
+              );
             }
           }
         } catch { /* ignore */ }
@@ -158,12 +275,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       supabase.auth.getUser().then(async ({ data: { user } }) => {
         if (user) {
           const { data: profile } = await supabase
-            .from("profiles").select("role, full_name").eq("id", user.id).single();
+            .from("profiles")
+            .select("role, full_name")
+            .eq("id", user.id)
+            .single();
           if (profile) {
             setRole(profile.role);
             const fullName = profile.full_name ?? "User";
             setUserName(fullName);
-            setUserInitials(fullName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase());
+            setUserInitials(
+              fullName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
+            );
           }
         }
         fetchNotifications().then((notifs) => setNotifications(notifs as Notification[]));
@@ -179,8 +301,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node))
-        setShowNotif(false);
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setShowNotif(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -204,101 +325,130 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   async function handleNotifClick(n: Notification) {
     if (!n.read) {
       await markNotificationRead(n.id);
-      setNotifications((prev) => prev.map((x) => x.id === n.id ? { ...x, read: true } : x));
+      setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+    }
+  }
+
+  function switchRole(targetRole: string, path: string) {
+    if (typeof document !== "undefined") {
+      document.cookie = `washos_role=${targetRole}; path=/; max-age=604800; SameSite=Lax`;
+    }
+    if (typeof window !== "undefined") {
+      localStorage.setItem("washos_active_session", JSON.stringify({ role: targetRole, name: userName }));
+      window.location.href = path;
     }
   }
 
   if (pathname === "/login" || pathname === "/reset-password") return <>{children}</>;
 
-  if (WASHER_ROUTES.some((r) => pathname.startsWith(r)))
+  // Dedicated Washer Mobile Portal
+  if (role === "washer" || (WASHER_ROUTES.some((r) => pathname.startsWith(r)) && role !== "administrator")) {
     return (
-      <LockedLayout label="Employee Portal" icon={Sparkles} name={userName} role="washer">
+      <DedicatedPortalShell
+        label="Attendant Station"
+        icon={Sparkles}
+        name={userName}
+        role="washer"
+        portalType="washer"
+      >
         {children}
-      </LockedLayout>
+      </DedicatedPortalShell>
     );
+  }
 
-  if (STORE_ROUTES.some((r) => pathname.startsWith(r)))
+  // Dedicated Storekeeper Warehouse Portal
+  if (role === "store_keeper" || (STORE_ROUTES.some((r) => pathname.startsWith(r)) && role !== "administrator")) {
     return (
-      <LockedLayout label="Store" icon={Store} name={userName} role="store keeper">
+      <DedicatedPortalShell
+        label="Store Warehouse"
+        icon={Store}
+        name={userName}
+        role="store_keeper"
+        portalType="store"
+      >
         {children}
-      </LockedLayout>
+      </DedicatedPortalShell>
     );
+  }
 
-  const NAV    = ALL_NAV.filter((n) => n.roles.includes(role));
   const unread = notifications.filter((n) => !n.read).length;
 
-  const currentPage = NAV.find(
-    (n) => n.href === pathname || (n.href !== "/" && pathname.startsWith(n.href))
-  );
-
-  /* ── Nav Links (reused in sidebar + drawer) ─────────────── */
+  /* ── Sidebar Navigation Groups ───────────────────────────── */
   const NavLinks = ({ onClick }: { onClick?: () => void }) => (
-    <nav className="space-y-0.5">
-      {NAV.map((n) => {
-        const active = pathname === n.href || (n.href !== "/" && pathname.startsWith(n.href));
-        const Icon   = n.icon;
+    <div className="space-y-6">
+      {NAV_GROUPS.map((group) => {
+        const accessibleItems = group.items.filter((item) => item.roles.includes(role));
+        if (accessibleItems.length === 0) return null;
+
         return (
-          <Link
-            key={n.href}
-            href={n.href}
-            onClick={onClick}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all group relative"
-            style={{
-              background: active ? "var(--panel-2)" : "transparent",
-              color:      active ? "var(--accent)"  : "var(--muted)",
-              fontWeight: active ? 500 : 400,
-            }}
-          >
-            {active && (
-              <span
-                className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full"
-                style={{ background: "var(--accent)" }}
-              />
-            )}
-            <Icon size={16} className="shrink-0" />
-            <span className="flex-1 truncate">{n.label}</span>
-            {active && (
-              <ChevronRight size={13} style={{ color: "var(--accent)", opacity: 0.6 }} />
-            )}
-          </Link>
+          <div key={group.section} className="space-y-1">
+            <div className="px-3 mb-1.5 flex items-center justify-between">
+              <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted/70">
+                {group.section}
+              </span>
+            </div>
+
+            {accessibleItems.map((n) => {
+              const active = pathname === n.href || (n.href !== "/" && pathname.startsWith(n.href));
+              const Icon = n.icon;
+
+              return (
+                <Link
+                  key={n.href}
+                  href={n.href}
+                  onClick={onClick}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all group relative ${
+                    active
+                      ? "bg-accent/10 text-accent font-semibold shadow-xs"
+                      : "text-muted hover:text-text hover:bg-panel-2"
+                  }`}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-accent" />
+                  )}
+                  <Icon
+                    size={16}
+                    className={`shrink-0 transition-transform group-hover:scale-110 ${
+                      active ? "text-accent" : "text-muted"
+                    }`}
+                  />
+                  <span className="flex-1 truncate">{n.label}</span>
+                  {n.badge && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-semibold border border-emerald-500/30 animate-pulse">
+                      {n.badge}
+                    </span>
+                  )}
+                  {active && <ChevronRight size={13} className="text-accent/60" />}
+                </Link>
+              );
+            })}
+          </div>
         );
       })}
-    </nav>
+    </div>
   );
 
   /* ── Sidebar ─────────────────────────────────────────────── */
   const Sidebar = ({ drawer = false, onClose }: { drawer?: boolean; onClose?: () => void }) => (
     <aside
-      className={`flex flex-col ${drawer ? "w-72 max-w-[85vw]" : "w-[220px] shrink-0"}`}
-      style={{
-        background:   "var(--panel)",
-        borderRight:  "1px solid var(--line)",
-        height:       "100%",
-        ...(drawer ? { position: "relative", zIndex: 50, boxShadow: "var(--shadow-lg)" } : {}),
-      }}
+      className={`flex flex-col ${drawer ? "w-72 max-w-[85vw]" : "w-[240px] shrink-0"} h-full bg-panel border-r border-line`}
     >
-      {/* Logo */}
-      <div className="flex items-center justify-between px-5 py-5">
-        <div className="flex items-center gap-2.5">
-          <div
-            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: "var(--accent)" }}
-          >
-            <Droplet size={15} style={{ color: "#041f1e" }} />
+      {/* Brand Header */}
+      <div className="flex items-center justify-between px-5 py-4.5 border-b border-line">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-accent text-slate-950 flex items-center justify-center font-black shadow-sm shadow-accent/20">
+            <Droplet size={17} />
           </div>
           <div>
-            <p
-              className="leading-none font-semibold text-base"
-              style={{ fontFamily: "var(--font-display)", color: "var(--text)" }}
-            >
-              WashOS
-            </p>
-            <p
-              className="text-[10px] mt-0.5"
-              style={{ fontFamily: "var(--font-mono)", color: "var(--muted)" }}
-            >
-              Car Wash ERP
-            </p>
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-base font-[family-name:var(--font-display)] text-text tracking-tight">
+                WashOS
+              </span>
+              <span className="text-[9px] font-mono uppercase bg-panel-2 px-1.5 py-0.2 rounded border border-line text-accent">
+                ERP
+              </span>
+            </div>
+            <p className="text-[10px] text-muted font-mono">Operations Control</p>
           </div>
         </div>
         {drawer && onClose && (
@@ -308,232 +458,198 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         )}
       </div>
 
-      {/* Nav section label */}
-      <div className="px-5 mb-1.5">
-        <span className="section-label">Navigation</span>
-      </div>
+      {/* Role Quick Switcher for Admin */}
+      {role === "administrator" && (
+        <div className="px-3 py-3 border-b border-line/60 bg-panel-2/50">
+          <div className="flex items-center justify-between text-[11px] font-mono text-muted mb-1.5 px-1">
+            <span className="flex items-center gap-1">
+              <ArrowRightLeft size={11} /> Switch Portal
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            <button
+              onClick={() => router.push("/admin")}
+              className={`text-[11px] py-1 rounded-lg border text-center transition-all font-medium ${
+                pathname === "/admin"
+                  ? "bg-accent/15 text-accent border-accent/40 font-semibold"
+                  : "bg-panel border-line text-muted hover:text-text"
+              }`}
+            >
+              Admin
+            </button>
+            <button
+              onClick={() => router.push("/store")}
+              className={`text-[11px] py-1 rounded-lg border text-center transition-all font-medium ${
+                pathname === "/store"
+                  ? "bg-accent/15 text-accent border-accent/40 font-semibold"
+                  : "bg-panel border-line text-muted hover:text-text"
+              }`}
+            >
+              Store
+            </button>
+            <button
+              onClick={() => router.push("/portal")}
+              className={`text-[11px] py-1 rounded-lg border text-center transition-all font-medium ${
+                pathname === "/portal"
+                  ? "bg-accent/15 text-accent border-accent/40 font-semibold"
+                  : "bg-panel border-line text-muted hover:text-text"
+              }`}
+            >
+              Washer
+            </button>
+          </div>
+        </div>
+      )}
 
-      {/* Links */}
-      <div className="flex-1 overflow-y-auto px-3 pb-2">
+      {/* Navigation Groups */}
+      <div className="flex-1 overflow-y-auto px-3 py-4 scrollbar-none">
         <NavLinks onClick={onClose} />
       </div>
 
-      {/* Footer */}
-      <div className="px-3 pb-5 pt-3" style={{ borderTop: "1px solid var(--line)" }}>
-        <button
-          onClick={signOut}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors"
-          style={{ color: "var(--muted)" }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--red)")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted)")}
-        >
-          <LogOut size={15} />
-          <span>Sign out</span>
-        </button>
+      {/* Footer Profile & Logout */}
+      <div className="p-3 border-t border-line bg-panel-2/30">
+        <div className="flex items-center justify-between p-2 rounded-xl bg-panel border border-line">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-accent text-slate-950 font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
+              {userInitials}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-text truncate">{userName}</p>
+              <p className="text-[10px] font-mono text-muted capitalize truncate">{role.replace("_", " ")}</p>
+            </div>
+          </div>
+          <button
+            onClick={signOut}
+            className="icon-btn text-muted hover:text-red hover:bg-red-dim/50 transition-colors w-7 h-7"
+            title="Sign out"
+          >
+            <LogOut size={14} />
+          </button>
+        </div>
       </div>
     </aside>
   );
 
   return (
-    <div className="min-h-screen flex" style={{ background: "var(--bg)" }}>
-
+    <div className="min-h-screen flex bg-bg text-text selection:bg-accent selection:text-white">
       {/* Desktop sidebar */}
-      <div className="hidden lg:flex h-screen sticky top-0">
+      <div className="hidden lg:flex h-screen sticky top-0 z-20">
         <Sidebar />
       </div>
 
       {/* Mobile drawer */}
       {drawerOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 flex">
+        <div className="lg:hidden fixed inset-0 z-50 flex">
           <div
-            className="absolute inset-0"
-            style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(3px)" }}
+            className="absolute inset-0 bg-black/60 backdrop-blur-xs"
             onClick={() => setDrawerOpen(false)}
           />
           <Sidebar drawer onClose={() => setDrawerOpen(false)} />
         </div>
       )}
 
-      {/* Main content */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
-
-        {/* Header */}
-        <header
-          className="flex items-center justify-between px-4 sm:px-6 py-3.5 sticky top-0 z-10"
-          style={{
-            background:    "var(--panel)",
-            borderBottom:  "1px solid var(--line)",
-            backdropFilter:"blur(12px)",
-            boxShadow:     "var(--shadow-sm)",
-          }}
-        >
-          {/* Left: hamburger + page title */}
+        {/* Top Header */}
+        <header className="flex items-center justify-between px-4 sm:px-6 py-3.5 sticky top-0 z-20 glass-panel border-b border-line shadow-xs">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setDrawerOpen(true)}
               className="lg:hidden icon-btn"
               aria-label="Open menu"
             >
-              <Menu size={16} />
+              <Menu size={17} />
             </button>
+
             <div>
-              <h1
-                className="text-lg font-semibold leading-none"
-                style={{ fontFamily: "var(--font-display)", color: "var(--text)" }}
-              >
-                {currentPage?.label ?? "WashOS"}
+              <h1 className="text-base font-bold font-[family-name:var(--font-display)] text-text leading-tight">
+                {pathname === "/admin"
+                  ? "Admin Control Center"
+                  : pathname === "/store"
+                  ? "Chemical Store Warehouse"
+                  : pathname === "/portal"
+                  ? "Washer Bay Station"
+                  : pathname === "/wash"
+                  ? "Live Bays & POS"
+                  : pathname === "/inventory"
+                  ? "Chemical Inventory"
+                  : pathname === "/expenses"
+                  ? "Shift Settlement & Expenses"
+                  : pathname === "/reports"
+                  ? "Analytics & Reports"
+                  : pathname === "/customers"
+                  ? "Customer Directory"
+                  : pathname === "/employees"
+                  ? "Staff & Commission"
+                  : "Executive Dashboard"}
               </h1>
-              <p className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>
-                {new Date().toLocaleDateString("en", { weekday: "long", month: "short", day: "numeric" })}
+              <p className="text-[11px] text-muted font-mono hidden sm:block">
+                {new Date().toLocaleDateString("en", {
+                  weekday: "long",
+                  month: "short",
+                  day: "numeric",
+                })}
               </p>
             </div>
           </div>
 
-          {/* Right: actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <ThemeToggle />
 
             {/* Notifications */}
             <div className="relative" ref={notifRef}>
               <button
                 onClick={() => setShowNotif((s) => !s)}
-                className="icon-btn relative"
+                className="icon-btn relative rounded-xl border border-line"
                 aria-label="Notifications"
               >
                 <Bell size={15} />
                 {unread > 0 && (
-                  <span
-                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center"
-                    style={{ background: "var(--red)", color: "#fff" }}
-                  >
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center bg-red text-white animate-pulse">
                     {unread > 9 ? "9+" : unread}
                   </span>
                 )}
               </button>
 
               {showNotif && (
-                <div
-                  className="absolute right-0 top-12 w-80 rounded-2xl overflow-hidden z-50 fade-in"
-                  style={{
-                    background:   "var(--panel)",
-                    border:       "1px solid var(--line)",
-                    boxShadow:    "var(--shadow-lg)",
-                  }}
-                >
-                  <div
-                    className="flex items-center justify-between px-4 py-3"
-                    style={{ borderBottom: "1px solid var(--line)" }}
-                  >
-                    <p
-                      className="text-sm font-semibold"
-                      style={{ fontFamily: "var(--font-display)", color: "var(--text)" }}
-                    >
-                      Notifications
-                    </p>
-                    {unread > 0 && (
-                      <span className="badge badge-pending">{unread} new</span>
-                    )}
-                    <button onClick={() => setShowNotif(false)} className="icon-btn w-7 h-7">
+                <div className="absolute right-0 top-12 w-80 rounded-2xl overflow-hidden z-50 glass-card border border-line shadow-2xl fade-in">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-panel-2">
+                    <p className="text-sm font-semibold text-text">Notifications</p>
+                    {unread > 0 && <span className="badge badge-pending">{unread} new</span>}
+                    <button onClick={() => setShowNotif(false)} className="icon-btn w-6 h-6">
                       <X size={13} />
                     </button>
                   </div>
-                  <div className="max-h-72 overflow-y-auto divide-y" style={{ ["--tw-divide-color" as string]: "var(--line)" }}>
+                  <div className="max-h-72 overflow-y-auto divide-y divide-line">
                     {notifications.length === 0 && (
-                      <p className="px-4 py-6 text-sm text-center" style={{ color: "var(--muted)" }}>
-                        No notifications yet.
-                      </p>
+                      <p className="px-4 py-6 text-sm text-center text-muted">No notifications yet.</p>
                     )}
                     {notifications.map((n) => (
                       <button
                         key={n.id}
                         onClick={() => handleNotifClick(n)}
-                        className="w-full text-left px-4 py-3 transition-colors"
-                        style={{
-                          opacity: n.read ? 0.55 : 1,
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--panel-2)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        className={`w-full text-left px-4 py-3 transition-colors text-xs ${
+                          n.read ? "bg-transparent text-muted" : "bg-accent/5 text-text font-medium"
+                        }`}
                       >
-                        <div className="flex items-start gap-2.5">
-                          {!n.read && (
-                            <span
-                              className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0"
-                              style={{ background: "var(--accent)" }}
-                            />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs leading-relaxed" style={{ color: "var(--text)" }}>{n.message}</p>
-                            <p
-                              className="text-[10px] mt-0.5"
-                              style={{ color: "var(--muted)", fontFamily: "var(--font-mono)" }}
-                            >
-                              {new Date(n.created_at).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
+                        <p>{n.message}</p>
+                        <span className="text-[10px] text-muted-2 mt-1 block font-mono">
+                          {new Date(n.created_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
                       </button>
                     ))}
                   </div>
                 </div>
               )}
             </div>
-
-            {/* User info */}
-            <div className="hidden sm:flex flex-col items-end">
-              <p className="text-sm font-medium leading-none" style={{ color: "var(--text)" }}>{userName}</p>
-              <p
-                className="text-[11px] mt-0.5 capitalize"
-                style={{ color: "var(--muted)", fontFamily: "var(--font-mono)" }}
-              >
-                {role.replace("_", " ")}
-              </p>
-            </div>
-            <div
-              className="avatar w-9 h-9 text-sm font-semibold shrink-0"
-              style={{ background: "var(--accent)", color: "#041f1e" }}
-            >
-              {userInitials}
-            </div>
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 p-4 sm:p-6 overflow-y-auto pb-24 lg:pb-6">
-          {children}
-        </main>
-      </div>
-
-      {/* Mobile bottom nav */}
-      <div
-        className="mobile-nav lg:hidden fixed bottom-0 left-0 right-0 z-20"
-        style={{
-          background:  "var(--panel)",
-          borderTop:   "1px solid var(--line)",
-          boxShadow:   "0 -4px 12px 0 rgb(0 0 0 / 0.08)",
-        }}
-      >
-        <div className="flex overflow-x-auto scrollbar-none px-2 pt-2 pb-1 gap-0.5">
-          {NAV.map((n) => {
-            const active = pathname === n.href || (n.href !== "/" && pathname.startsWith(n.href));
-            const Icon   = n.icon;
-            return (
-              <Link
-                key={n.href}
-                href={n.href}
-                className="flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl shrink-0 transition-all"
-                style={{ color: active ? "var(--accent)" : "var(--muted-2)" }}
-              >
-                <Icon size={19} strokeWidth={active ? 2.2 : 1.8} />
-                <span
-                  className="text-[9px] font-medium whitespace-nowrap"
-                  style={{ fontWeight: active ? 600 : 400 }}
-                >
-                  {n.label.split(" ")[0]}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
+        {/* Page Content */}
+        <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto">{children}</main>
       </div>
     </div>
   );

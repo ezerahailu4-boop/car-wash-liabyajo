@@ -33,46 +33,46 @@ export function initWashOSRealtime() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "wash_transactions" },
-        (payload) => {
+        (payload: { eventType: string; [key: string]: any }) => {
           triggerDataChange({ table: "wash_transactions", eventType: payload.eventType, payload });
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "soap_requests" },
-        (payload) => {
+        (payload: { eventType: string; [key: string]: any }) => {
           triggerDataChange({ table: "soap_requests", eventType: payload.eventType, payload });
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "inventory" },
-        (payload) => {
+        (payload: { eventType: string; [key: string]: any }) => {
           triggerDataChange({ table: "inventory", eventType: payload.eventType, payload });
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "washer_inventory" },
-        (payload) => {
+        (payload: { eventType: string; [key: string]: any }) => {
           triggerDataChange({ table: "washer_inventory", eventType: payload.eventType, payload });
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "purchase_orders" },
-        (payload) => {
+        (payload: { eventType: string; [key: string]: any }) => {
           triggerDataChange({ table: "purchase_orders", eventType: payload.eventType, payload });
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications" },
-        (payload) => {
+        (payload: { eventType: string; [key: string]: any }) => {
           triggerDataChange({ table: "notifications", eventType: payload.eventType, payload });
         }
       )
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         if (status === "SUBSCRIBED") {
           isInitialized = true;
         }

@@ -18,29 +18,28 @@ import {
   ReceiptText,
   DollarSign,
   Sparkles,
+  Droplet,
+  Box,
+  Layers,
+  Store,
+  ArrowDownRight,
+  Send,
+  Calendar,
 } from "lucide-react";
 import { DataStore } from "@/lib/data-store";
 import { InventoryItem, PurchaseOrder, SoapRequest, Supplier } from "@/lib/types";
 
-const TABS = ["Soap Requests", "Purchase Orders", "Receive Stock", "Suppliers"] as const;
+const TABS = ["Refill Desk", "Bulk Chemicals", "Purchase Orders", "Suppliers"] as const;
 type Tab = (typeof TABS)[number];
-
-const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
-  pending: { bg: "#3A2E14", fg: "var(--amber)" },
-  approved: { bg: "#123A34", fg: "var(--accent)" },
-  rejected: { bg: "#3A1A1A", fg: "var(--red)" },
-  received: { bg: "#123A34", fg: "var(--accent)" },
-  cancelled: { bg: "#3A1A1A", fg: "var(--red)" },
-};
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="modal-backdrop flex items-center justify-center p-4">
-      <div className="modal-content max-w-md w-full p-6 space-y-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+      <div className="card glass-card max-w-md w-full p-6 space-y-4 shadow-2xl border-line fade-up">
         <div className="flex items-center justify-between pb-3 border-b border-line">
-          <h3 className="font-semibold text-lg text-text font-[family-name:var(--font-display)]">{title}</h3>
-          <button onClick={onClose} className="icon-btn">
-            <X size={16} />
+          <h3 className="font-bold text-lg text-text font-[family-name:var(--font-display)]">{title}</h3>
+          <button onClick={onClose} className="icon-btn w-7 h-7">
+            <X size={15} />
           </button>
         </div>
         {children}
@@ -50,7 +49,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 }
 
 export default function StorePage() {
-  const [tab, setTab] = useState<Tab>("Soap Requests");
+  const [tab, setTab] = useState<Tab>("Refill Desk");
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [soapReqs, setSoapReqs] = useState<SoapRequest[]>([]);
@@ -67,7 +66,7 @@ export default function StorePage() {
     supplier_id: "",
     inventory_id: "",
     qty_ml: "",
-    unit_cost: "",
+    unit_cost: "0.188",
     notes: "",
   });
 
@@ -100,12 +99,7 @@ export default function StorePage() {
     setInventory(inv);
 
     if (sups.length > 0 && !poForm.supplier_id) {
-      setPoForm((prev) => ({
-        ...prev,
-        supplier_id: sups[0].id,
-        inventory_id: inv[0]?.id || "",
-        unit_cost: String(inv[0]?.unit_cost || "0.188"),
-      }));
+      setPoForm((p) => ({ ...p, supplier_id: sups[0].id, inventory_id: inv[0]?.id || "" }));
     }
     setLoading(false);
   }
@@ -116,10 +110,11 @@ export default function StorePage() {
     return () => window.removeEventListener("washos_data_change", loadData);
   }, []);
 
-  async function handleSoapDecision(id: string, status: "approved" | "rejected") {
-    const qty = status === "approved" ? Number(approveQty[id] || soapReqs.find((r) => r.id === id)?.quantity_requested || 0) : undefined;
+  async function handleDecideRequest(id: string, status: "approved" | "rejected") {
+    const target = soapReqs.find((r) => r.id === id);
+    const qty = status === "approved" ? Number(approveQty[id] || target?.quantity_requested || 0) : undefined;
     await DataStore.decideSoapRequest(id, status, qty);
-    notify(status === "approved" ? `✓ Approved ${qty} ml detergent issue.` : "✕ Request rejected.");
+    notify(status === "approved" ? `✓ Dispensed ${qty}ml to ${target?.washer_name}` : "✕ Requisition rejected.");
     await loadData();
   }
 
@@ -153,433 +148,470 @@ export default function StorePage() {
 
   async function handleReceiveStock(poId: string) {
     await DataStore.receivePurchaseOrder(poId);
-    notify("✓ Stock received and added to active inventory balance!");
+    notify("✓ Stock received! Warehouse inventory updated.");
     await loadData();
   }
 
-  async function handleAddSupplier(e: React.FormEvent) {
+  async function handleCreateSupplier(e: React.FormEvent) {
     e.preventDefault();
-    if (!supForm.name.trim() || !supForm.contact.trim()) {
-      notify("Supplier name and phone contact are required.");
+    if (!supForm.name || !supForm.contact) {
+      notify("Vendor name and contact are required.");
       return;
     }
 
     await DataStore.createSupplier({
-      name: supForm.name.trim(),
-      contact: supForm.contact.trim(),
-      email: supForm.email.trim() || null,
-      products: supForm.products.trim() || "Chemicals & Detergents",
-      address: supForm.address.trim() || null,
+      name: supForm.name,
+      contact: supForm.contact,
+      email: supForm.email || null,
+      products: supForm.products || "Car wash chemicals",
+      address: supForm.address || null,
       active: true,
     });
 
-    notify(`✓ Supplier ${supForm.name} added.`);
+    notify(`✓ Supplier added: ${supForm.name}`);
     setShowSupplier(false);
     setSupForm({ name: "", contact: "", email: "", products: "", address: "" });
     await loadData();
   }
 
-  const pendingRequests = soapReqs.filter((r) => r.status === "pending");
-  const pendingPOs = orders.filter((o) => o.status === "pending");
-  const totalStockMl = inventory.reduce((sum, i) => sum + i.total_ml, 0);
+  const pendingReqs = soapReqs.filter((r) => r.status === "pending");
+  const totalStockMl = inventory.reduce((s, i) => s + (i.total_ml || 0), 0);
+  const lowStockCount = inventory.filter((i) => i.status !== "ok").length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-6xl mx-auto pb-12">
       {/* Toast Alert */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-xl bg-panel border border-accent px-4 py-3 shadow-2xl fade-up flex items-center gap-3">
-          <Sparkles size={16} className="text-accent" />
-          <span className="text-sm font-medium text-text">{toast}</span>
+        <div className="fixed top-4 right-4 z-50 rounded-2xl glass-card border border-accent px-5 py-3.5 shadow-2xl fade-up flex items-center gap-3">
+          <Sparkles size={18} className="text-accent shrink-0" />
+          <span className="text-sm font-semibold text-text">{toast}</span>
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-text font-[family-name:var(--font-display)]">
-            Store & Inventory Operations
-          </h2>
-          <p className="text-sm text-muted">
-            Manage soap requests, procurement purchase orders, receiving logs, and chemical suppliers.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {tab === "Purchase Orders" && (
-            <button onClick={() => setShowPO(true)} className="btn btn-primary">
-              <Plus size={16} />
-              <span>Create Purchase Order</span>
+      {/* Warehouse Header Banner */}
+      <div className="card glass-card p-6 border-line relative overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-accent/15 border border-accent/30 flex items-center justify-center text-accent">
+              <Store size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold text-text font-[family-name:var(--font-display)]">
+                  Chemical Warehouse Hub
+                </h2>
+                <span className="badge badge-approved">Storekeeper Active</span>
+              </div>
+              <p className="text-xs text-muted font-mono mt-0.5">
+                Bulk LARGO Detergent, Foam Tanks, Restock Deliveries & Attendant Dispensing
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowPO(true)}
+              className="btn btn-primary text-xs font-semibold py-2 px-3.5 rounded-xl gap-2 shadow-sm shadow-accent/20"
+            >
+              <Plus size={14} />
+              <span>Create PO</span>
             </button>
-          )}
-          {tab === "Suppliers" && (
-            <button onClick={() => setShowSupplier(true)} className="btn btn-primary">
-              <Plus size={16} />
-              <span>Add Supplier</span>
+            <button
+              onClick={() => setShowSupplier(true)}
+              className="btn btn-ghost text-xs font-medium py-2 px-3 rounded-xl gap-1.5 border border-line"
+            >
+              <Building2 size={14} />
+              <span>Add Vendor</span>
             </button>
-          )}
-          <button onClick={loadData} className="icon-btn" title="Refresh data">
-            <RefreshCw size={15} />
-          </button>
-        </div>
-      </div>
-
-      {/* Quick KPI Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card p-4 flex items-center gap-3.5 border-l-4 border-l-amber">
-          <div className="w-10 h-10 rounded-xl bg-amber/10 text-amber flex items-center justify-center shrink-0">
-            <Bell size={18} />
-          </div>
-          <div>
-            <p className="text-xs text-muted font-medium">Pending Soap Requests</p>
-            <p className="text-xl font-bold font-mono text-text">{pendingRequests.length}</p>
+            <button
+              onClick={loadData}
+              className="icon-btn rounded-xl border border-line"
+              title="Sync Live"
+            >
+              <RefreshCw size={14} />
+            </button>
           </div>
         </div>
 
-        <div className="card p-4 flex items-center gap-3.5 border-l-4 border-l-accent">
-          <div className="w-10 h-10 rounded-xl bg-accent/10 text-accent flex items-center justify-center shrink-0">
-            <PackageCheck size={18} />
+        {/* Live Warehouse Quick Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-line/60">
+          <div className="p-3 rounded-xl bg-panel-2/60 border border-line">
+            <p className="text-[11px] font-mono text-muted uppercase">Pending Refills</p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-2xl font-bold font-mono text-text">{pendingReqs.length}</span>
+              {pendingReqs.length > 0 && <span className="badge badge-pending">Urgent</span>}
+            </div>
           </div>
-          <div>
-            <p className="text-xs text-muted font-medium">Total Chemicals in Stock</p>
-            <p className="text-xl font-bold font-mono text-text">{(totalStockMl / 1000).toFixed(1)} L</p>
-          </div>
-        </div>
 
-        <div className="card p-4 flex items-center gap-3.5 border-l-4 border-l-sky-500">
-          <div className="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0">
-            <Truck size={18} />
+          <div className="p-3 rounded-xl bg-panel-2/60 border border-line">
+            <p className="text-[11px] font-mono text-muted uppercase">Total Bulk Stock</p>
+            <p className="text-2xl font-bold font-mono text-accent mt-1">
+              {(totalStockMl / 1000).toFixed(1)} <span className="text-xs text-muted font-normal">Liters</span>
+            </p>
           </div>
-          <div>
-            <p className="text-xs text-muted font-medium">Pending Purchase Orders</p>
-            <p className="text-xl font-bold font-mono text-text">{pendingPOs.length}</p>
-          </div>
-        </div>
 
-        <div className="card p-4 flex items-center gap-3.5 border-l-4 border-l-purple-500">
-          <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
-            <Building2 size={18} />
+          <div className="p-3 rounded-xl bg-panel-2/60 border border-line">
+            <p className="text-[11px] font-mono text-muted uppercase">Stock Health</p>
+            <p className="text-2xl font-bold font-mono text-text mt-1">
+              {lowStockCount > 0 ? (
+                <span className="text-amber">{lowStockCount} Low/Critical</span>
+              ) : (
+                <span className="text-emerald-400">All Good</span>
+              )}
+            </p>
           </div>
-          <div>
-            <p className="text-xs text-muted font-medium">Verified Suppliers</p>
-            <p className="text-xl font-bold font-mono text-text">{suppliers.length}</p>
+
+          <div className="p-3 rounded-xl bg-panel-2/60 border border-line">
+            <p className="text-[11px] font-mono text-muted uppercase">Pending Deliveries</p>
+            <p className="text-2xl font-bold font-mono text-text mt-1">
+              {orders.filter((o) => o.status === "pending").length}
+            </p>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-panel border border-line w-fit">
+      <div className="flex rounded-xl bg-panel-2 p-1 border border-line">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`tab-btn flex items-center gap-2 ${tab === t ? "active" : ""}`}
+            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+              tab === t ? "bg-panel text-accent shadow-xs" : "text-muted hover:text-text"
+            }`}
           >
+            {t === "Refill Desk" && <Droplet size={14} />}
+            {t === "Bulk Chemicals" && <Box size={14} />}
+            {t === "Purchase Orders" && <Truck size={14} />}
+            {t === "Suppliers" && <Building2 size={14} />}
             <span>{t}</span>
-            {t === "Soap Requests" && pendingRequests.length > 0 && (
-              <span className="w-4 h-4 rounded-full bg-amber text-slate-950 text-[10px] flex items-center justify-center font-bold">
-                {pendingRequests.length}
-              </span>
-            )}
-            {t === "Receive Stock" && pendingPOs.length > 0 && (
-              <span className="w-4 h-4 rounded-full bg-accent text-slate-950 text-[10px] flex items-center justify-center font-bold">
-                {pendingPOs.length}
+            {t === "Refill Desk" && pendingReqs.length > 0 && (
+              <span className="w-5 h-5 rounded-full bg-amber text-slate-950 font-mono text-[10px] font-bold flex items-center justify-center ml-1">
+                {pendingReqs.length}
               </span>
             )}
           </button>
         ))}
       </div>
 
-      {/* TAB 1: SOAP REQUESTS */}
-      {tab === "Soap Requests" && (
-        <div className="card overflow-hidden">
-          <div className="p-4 border-b border-line flex items-center justify-between">
-            <h3 className="font-semibold text-text">Attendant Detergent Requests</h3>
-            <span className="text-xs text-muted">{soapReqs.length} total requests</span>
+      {/* ── TAB 1: ATTENDANT REFILL DESK ──────────────────────────── */}
+      {tab === "Refill Desk" && (
+        <div className="space-y-4 fade-in">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted font-mono">
+              Bay Attendant Detergent Requisitions ({soapReqs.length})
+            </h3>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Request #</th>
-                  <th>Attendant</th>
-                  <th>Chemical Product</th>
-                  <th>Qty Requested</th>
-                  <th>Approve Qty (ml)</th>
-                  <th>Notes</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {soapReqs.map((r) => {
-                  const tone = STATUS_TONE[r.status] || STATUS_TONE.pending;
-                  const isPending = r.status === "pending";
+          {soapReqs.length === 0 ? (
+            <div className="card glass-card p-10 text-center text-muted border-line">
+              <Droplet size={28} className="mx-auto text-accent mb-2" />
+              <p className="font-semibold text-text">No Refill Requests</p>
+              <p className="text-xs text-muted mt-1">When bay attendants request soap refills, they appear here.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {soapReqs.map((req) => {
+                const isPending = req.status === "pending";
+                return (
+                  <div
+                    key={req.id}
+                    className={`card glass-card p-4 border-line flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
+                      isPending ? "border-amber/40 bg-amber/5" : ""
+                    }`}
+                  >
+                    <div className="flex items-start gap-3.5">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-mono font-bold text-xs ${
+                          isPending
+                            ? "bg-amber/20 text-amber border border-amber/30"
+                            : req.status === "approved"
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            : "bg-red/20 text-red"
+                        }`}
+                      >
+                        <Droplet size={18} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-text">{req.washer_name}</span>
+                          <span className="text-xs font-mono text-muted">({req.request_number})</span>
+                          <span
+                            className={`badge ${
+                              isPending
+                                ? "badge-pending"
+                                : req.status === "approved"
+                                ? "badge-approved"
+                                : "badge-rejected"
+                            }`}
+                          >
+                            {req.status.toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-text-2 mt-1">
+                          Product: <strong className="text-text">{req.product_name}</strong> · Requested:{" "}
+                          <strong className="text-accent font-mono">{req.quantity_requested} ml</strong>
+                          {req.quantity_approved && (
+                            <>
+                              {" "}
+                              · Approved:{" "}
+                              <strong className="text-emerald-400 font-mono">{req.quantity_approved} ml</strong>
+                            </>
+                          )}
+                        </p>
+                        {req.notes && <p className="text-[11px] text-muted italic mt-0.5">&quot;{req.notes}&quot;</p>}
+                      </div>
+                    </div>
 
-                  return (
-                    <tr key={r.id}>
-                      <td className="font-mono text-xs font-bold text-accent">{r.request_number}</td>
-                      <td className="font-medium text-text">{r.washer_name}</td>
-                      <td className="text-xs text-muted">{r.product_name}</td>
-                      <td className="font-mono font-bold text-text">{r.quantity_requested} ml</td>
-                      <td>
-                        {isPending ? (
+                    {isPending && (
+                      <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                        <div className="flex items-center gap-1.5 bg-panel-2 p-1 rounded-xl border border-line">
+                          <span className="text-[10px] font-mono text-muted pl-1">Qty:</span>
                           <input
                             type="number"
-                            defaultValue={r.quantity_requested}
-                            onChange={(e) => setApproveQty({ ...approveQty, [r.id]: e.target.value })}
-                            className="input py-1 px-2 text-xs w-24 font-mono"
+                            className="w-16 bg-transparent text-xs font-mono text-text text-center outline-hidden"
+                            defaultValue={req.quantity_requested}
+                            onChange={(e) =>
+                              setApproveQty((prev) => ({ ...prev, [req.id]: e.target.value }))
+                            }
                           />
-                        ) : (
-                          <span className="font-mono text-xs text-muted">
-                            {r.quantity_approved ? `${r.quantity_approved} ml` : "—"}
-                          </span>
-                        )}
-                      </td>
-                      <td className="text-xs text-muted max-w-xs truncate">{r.notes || "Standard wash prep"}</td>
-                      <td>
-                        <span
-                          className="badge text-[10px]"
-                          style={{ background: tone.bg, color: tone.fg }}
+                          <span className="text-[10px] font-mono text-muted pr-1">ml</span>
+                        </div>
+
+                        <button
+                          onClick={() => handleDecideRequest(req.id, "approved")}
+                          className="btn btn-primary text-xs py-1.5 px-3 rounded-xl gap-1"
                         >
-                          {r.status}
-                        </span>
-                      </td>
-                      <td>
-                        {isPending ? (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => handleSoapDecision(r.id, "approved")}
-                              className="btn btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
-                              title="Approve and issue soap"
-                            >
-                              <Check size={12} />
-                              <span>Approve</span>
-                            </button>
-                            <button
-                              onClick={() => handleSoapDecision(r.id, "rejected")}
-                              className="btn btn-danger py-1 px-2 text-xs"
-                              title="Reject request"
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted font-mono">Decided</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <Check size={13} />
+                          <span>Approve & Dispense</span>
+                        </button>
+                        <button
+                          onClick={() => handleDecideRequest(req.id, "rejected")}
+                          className="btn btn-danger text-xs py-1.5 px-2.5 rounded-xl"
+                          title="Reject"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB 2: BULK CHEMICAL INVENTORY ────────────────────────── */}
+      {tab === "Bulk Chemicals" && (
+        <div className="space-y-4 fade-in">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted font-mono">
+              Main Store Stock Items ({inventory.length})
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {inventory.map((item) => {
+              const pct = Math.min(100, Math.round((item.total_ml / (item.min_stock_ml * 2.5 || 10000)) * 100));
+              const isCrit = item.status === "critical";
+              const isLow = item.status === "low";
+
+              return (
+                <div key={item.id} className="card glass-card p-5 border-line space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-panel-2 text-muted border border-line">
+                        {item.category}
+                      </span>
+                      <h4 className="font-bold text-sm text-text mt-1.5">{item.product_name}</h4>
+                    </div>
+                    <span
+                      className={`badge ${
+                        isCrit ? "badge-critical" : isLow ? "badge-low" : "badge-ok"
+                      }`}
+                    >
+                      {item.status.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-baseline text-xs mb-1">
+                      <span className="text-muted font-mono">Current Stock:</span>
+                      <span className="text-lg font-bold font-mono text-text">
+                        {item.total_ml.toLocaleString()} ml
+                      </span>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="w-full h-2 rounded-full bg-panel-3 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          isCrit ? "bg-red" : isLow ? "bg-amber" : "bg-accent"
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted font-mono mt-1">
+                      <span>Reorder Min: {item.min_stock_ml.toLocaleString()} ml</span>
+                      <span>{(item.total_ml / 1000).toFixed(1)} L</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-line text-[11px] text-muted flex justify-between">
+                    <span>Supplier: {item.supplier || "Default Vendor"}</span>
+                    <span>Cost: ETB {item.unit_cost || 0.188}/ml</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* TAB 2: PURCHASE ORDERS */}
+      {/* ── TAB 3: PURCHASE ORDERS ────────────────────────────────── */}
       {tab === "Purchase Orders" && (
-        <div className="card overflow-hidden">
-          <div className="p-4 border-b border-line flex items-center justify-between">
-            <h3 className="font-semibold text-text">Procurement & Purchase Orders</h3>
-            <span className="text-xs text-muted">{orders.length} orders logged</span>
+        <div className="space-y-4 fade-in">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted font-mono">
+              Restock Purchase Orders ({orders.length})
+            </h3>
+            <button
+              onClick={() => setShowPO(true)}
+              className="btn btn-primary text-xs py-1.5 px-3 rounded-xl gap-1.5"
+            >
+              <Plus size={13} />
+              <span>New Order</span>
+            </button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>PO Number</th>
-                  <th>Supplier</th>
-                  <th>Product</th>
-                  <th>Quantity</th>
-                  <th>Unit Cost</th>
-                  <th>Total Cost</th>
-                  <th>Status</th>
-                  <th>Order Date</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((po) => {
-                  const tone = STATUS_TONE[po.status] || STATUS_TONE.pending;
-                  return (
+          <div className="card glass-card border-line overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>PO Number</th>
+                    <th>Product & Qty</th>
+                    <th>Supplier</th>
+                    <th>Ordered</th>
+                    <th>Total Cost</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.map((po) => (
                     <tr key={po.id}>
-                      <td className="font-mono text-xs font-bold text-accent">{po.po_number}</td>
-                      <td className="font-medium text-text">{po.supplier_name}</td>
-                      <td className="text-xs text-muted">{po.product_name}</td>
-                      <td className="font-mono font-bold text-text">
-                        {(po.qty_ml / 1000).toFixed(1)} L ({po.qty_ml.toLocaleString()} ml)
+                      <td className="font-mono font-semibold text-text">{po.po_number}</td>
+                      <td>
+                        <span className="font-medium text-text">{po.product_name}</span>
+                        <span className="text-xs text-muted block font-mono">
+                          {po.qty_ml.toLocaleString()} ml ({(po.qty_ml / 1000).toFixed(1)} L)
+                        </span>
                       </td>
-                      <td className="font-mono text-xs">{po.unit_cost} ETB/ml</td>
-                      <td className="font-mono font-bold text-text">
-                        {(po.total_cost || po.qty_ml * po.unit_cost).toLocaleString()} ETB
+                      <td className="text-xs">{po.supplier_name}</td>
+                      <td className="text-xs font-mono">{po.ordered_at}</td>
+                      <td className="text-xs font-mono font-bold text-accent">
+                        ETB {(po.total_cost || 0).toLocaleString()}
                       </td>
                       <td>
                         <span
-                          className="badge text-[10px]"
-                          style={{ background: tone.bg, color: tone.fg }}
+                          className={`badge ${
+                            po.status === "received"
+                              ? "badge-approved"
+                              : po.status === "pending"
+                              ? "badge-pending"
+                              : "badge-rejected"
+                          }`}
                         >
-                          {po.status}
+                          {po.status.toUpperCase()}
                         </span>
                       </td>
-                      <td className="text-xs text-muted font-mono">
-                        {new Date(po.ordered_at).toLocaleDateString()}
-                      </td>
                       <td>
-                        {po.status === "pending" ? (
+                        {po.status === "pending" && (
                           <button
                             onClick={() => handleReceiveStock(po.id)}
-                            className="btn btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
+                            className="btn btn-primary text-[11px] py-1 px-2.5 rounded-lg gap-1 shadow-xs"
                           >
                             <PackageCheck size={13} />
                             <span>Receive Stock</span>
                           </button>
-                        ) : (
-                          <span className="text-xs text-accent font-medium">✓ In Inventory</span>
+                        )}
+                        {po.status === "received" && (
+                          <span className="text-[11px] text-muted font-mono flex items-center gap-1">
+                            <Check size={12} className="text-emerald-400" /> Stocked
+                          </span>
                         )}
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: RECEIVE STOCK */}
-      {tab === "Receive Stock" && (
-        <div className="space-y-4">
-          <div className="card p-6 space-y-4">
-            <div>
-              <h3 className="text-lg font-semibold text-text font-[family-name:var(--font-display)]">
-                Incoming Shipments & Stock Intake
-              </h3>
-              <p className="text-xs text-muted">
-                Inspect delivered barrels or bottles and click Receive to immediately update active inventory balances.
-              </p>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
-            {pendingPOs.length === 0 ? (
-              <div className="py-12 flex flex-col items-center justify-center text-center text-muted">
-                <PackageCheck size={36} className="text-accent/40 mb-2" />
-                <p className="font-medium text-text">All purchase orders have been received!</p>
-                <p className="text-xs mt-1">Create a new Purchase Order to schedule incoming deliveries.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {pendingPOs.map((po) => (
-                  <div key={po.id} className="p-4 rounded-xl border border-line bg-panel-2 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-accent">{po.po_number}</span>
-                      <span className="badge badge-pending">Awaiting Intake</span>
-                    </div>
-
-                    <div>
-                      <p className="font-bold text-text text-base">{po.product_name}</p>
-                      <p className="text-xs text-muted">Supplier: {po.supplier_name}</p>
-                    </div>
-
-                    <div className="p-3 rounded-lg bg-panel grid grid-cols-3 gap-2 text-xs font-mono">
-                      <div>
-                        <span className="text-[10px] text-muted block">Volume</span>
-                        <span className="font-bold text-text">{(po.qty_ml / 1000).toFixed(1)} L</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-muted block">Unit Rate</span>
-                        <span className="font-bold text-text">{po.unit_cost} ETB</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-muted block">Total Cost</span>
-                        <span className="font-bold text-accent">
-                          {(po.qty_ml * po.unit_cost).toLocaleString()} ETB
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => handleReceiveStock(po.id)}
-                      className="btn btn-primary w-full py-2 flex items-center justify-center gap-2"
-                    >
-                      <PackageCheck size={16} />
-                      <span>Confirm & Deposit into Warehouse</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}
 
-      {/* TAB 4: SUPPLIERS */}
+      {/* ── TAB 4: SUPPLIERS DIRECTORY ────────────────────────────── */}
       {tab === "Suppliers" && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {suppliers.map((s) => (
-            <div key={s.id} className="card p-5 space-y-3.5 flex flex-col justify-between">
-              <div>
+        <div className="space-y-4 fade-in">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted font-mono">
+              Chemical Vendors & Wholesalers ({suppliers.length})
+            </h3>
+            <button
+              onClick={() => setShowSupplier(true)}
+              className="btn btn-primary text-xs py-1.5 px-3 rounded-xl gap-1.5"
+            >
+              <Plus size={13} />
+              <span>Add Vendor</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {suppliers.map((sup) => (
+              <div key={sup.id} className="card glass-card p-5 border-line space-y-3">
                 <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-accent/15 text-accent flex items-center justify-center shrink-0">
-                      <Building2 size={18} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-text text-base">{s.name}</h4>
-                      <span className="badge badge-approved text-[9px]">Active Vendor</span>
-                    </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-text">{sup.name}</h4>
+                    <p className="text-xs text-muted mt-0.5 font-mono">{sup.products}</p>
                   </div>
+                  <span className="badge badge-approved">Active</span>
                 </div>
 
-                <div className="mt-4 space-y-2 text-xs text-muted">
+                <div className="space-y-1.5 text-xs text-text-2 pt-2 border-t border-line">
                   <div className="flex items-center gap-2">
-                    <Phone size={13} className="text-accent shrink-0" />
-                    <span className="text-text font-mono font-medium">{s.contact}</span>
+                    <Phone size={13} className="text-accent" />
+                    <span>{sup.contact}</span>
                   </div>
-                  {s.email && (
+                  {sup.email && (
                     <div className="flex items-center gap-2">
-                      <Mail size={13} className="text-accent shrink-0" />
-                      <span className="truncate">{s.email}</span>
+                      <Mail size={13} className="text-muted" />
+                      <span>{sup.email}</span>
                     </div>
                   )}
-                  {s.address && (
+                  {sup.address && (
                     <div className="flex items-center gap-2">
-                      <MapPin size={13} className="text-accent shrink-0" />
-                      <span>{s.address}</span>
+                      <MapPin size={13} className="text-muted" />
+                      <span>{sup.address}</span>
                     </div>
                   )}
                 </div>
-
-                <div className="mt-3 p-2.5 rounded-lg bg-panel-2 border border-line text-xs">
-                  <span className="text-[10px] text-muted uppercase block font-semibold">Key Products:</span>
-                  <p className="text-text mt-0.5">{s.products}</p>
-                </div>
               </div>
-
-              <div className="pt-3 border-t border-line flex items-center gap-2">
-                <a
-                  href={`tel:${s.contact}`}
-                  className="btn btn-ghost flex-1 py-1.5 text-xs flex items-center justify-center gap-1.5"
-                >
-                  <Phone size={13} />
-                  <span>Call Vendor</span>
-                </a>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
-      {/* CREATE PO MODAL */}
+      {/* ── MODAL: CREATE PURCHASE ORDER ──────────────────────────── */}
       {showPO && (
-        <Modal title="Create Purchase Order" onClose={() => setShowPO(false)}>
-          <form onSubmit={handleCreatePO} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="section-label">Supplier *</label>
+        <Modal title="Create Chemical Purchase Order" onClose={() => setShowPO(false)}>
+          <form onSubmit={handleCreatePO} className="space-y-3.5 text-xs">
+            <div>
+              <label className="text-muted font-mono uppercase block mb-1">Select Supplier:</label>
               <select
                 value={poForm.supplier_id}
-                onChange={(e) => setPoForm({ ...poForm, supplier_id: e.target.value })}
+                onChange={(e) => setPoForm((p) => ({ ...p, supplier_id: e.target.value }))}
                 className="input"
-                required
               >
                 {suppliers.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -589,151 +621,117 @@ export default function StorePage() {
               </select>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="section-label">Chemical Product *</label>
+            <div>
+              <label className="text-muted font-mono uppercase block mb-1">Target Chemical:</label>
               <select
                 value={poForm.inventory_id}
-                onChange={(e) => {
-                  const targetInv = inventory.find((i) => i.id === e.target.value);
-                  setPoForm({
-                    ...poForm,
-                    inventory_id: e.target.value,
-                    unit_cost: String(targetInv?.unit_cost || "0.188"),
-                  });
-                }}
+                onChange={(e) => setPoForm((p) => ({ ...p, inventory_id: e.target.value }))}
                 className="input"
-                required
               >
                 {inventory.map((i) => (
                   <option key={i.id} value={i.id}>
-                    {i.product_name} ({i.total_ml} ml in stock)
+                    {i.product_name} ({i.category})
                   </option>
                 ))}
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="section-label">Volume (ml) *</label>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-muted font-mono uppercase block mb-1">Quantity (ml):</label>
                 <input
                   type="number"
                   value={poForm.qty_ml}
-                  onChange={(e) => setPoForm({ ...poForm, qty_ml: e.target.value })}
-                  placeholder="e.g. 50000 (50L)"
-                  className="input font-mono"
+                  onChange={(e) => setPoForm((p) => ({ ...p, qty_ml: e.target.value }))}
+                  placeholder="e.g. 20000"
                   required
+                  className="input font-mono"
                 />
               </div>
-
-              <div className="space-y-1.5">
-                <label className="section-label">Unit Cost (ETB/ml)</label>
+              <div>
+                <label className="text-muted font-mono uppercase block mb-1">Unit Cost (ETB/ml):</label>
                 <input
                   type="number"
                   step="0.001"
                   value={poForm.unit_cost}
-                  onChange={(e) => setPoForm({ ...poForm, unit_cost: e.target.value })}
-                  className="input font-mono"
+                  onChange={(e) => setPoForm((p) => ({ ...p, unit_cost: e.target.value }))}
                   required
+                  className="input font-mono"
                 />
               </div>
             </div>
 
-            {poForm.qty_ml && (
-              <div className="p-3 rounded-xl bg-panel-2 border border-line flex justify-between text-xs font-mono">
-                <span className="text-muted">Total Order Value:</span>
-                <span className="font-bold text-accent text-sm">
-                  {(Number(poForm.qty_ml) * Number(poForm.unit_cost || 0)).toLocaleString()} ETB
-                </span>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label className="section-label">Notes</label>
+            <div>
+              <label className="text-muted font-mono uppercase block mb-1">Order Notes:</label>
               <input
+                type="text"
                 value={poForm.notes}
-                onChange={(e) => setPoForm({ ...poForm, notes: e.target.value })}
-                placeholder="e.g. Urgent weekend delivery"
+                onChange={(e) => setPoForm((p) => ({ ...p, notes: e.target.value }))}
+                placeholder="e.g. 4x 5L Jerrycans"
                 className="input"
               />
             </div>
 
-            <div className="pt-3 flex gap-2 justify-end">
-              <button type="button" onClick={() => setShowPO(false)} className="btn btn-ghost">
-                Cancel
-              </button>
-              <button type="submit" className="btn btn-primary">
-                Issue Purchase Order
-              </button>
-            </div>
+            <button type="submit" className="btn btn-primary w-full py-2.5 text-xs font-semibold rounded-xl mt-2">
+              Confirm & Issue Purchase Order
+            </button>
           </form>
         </Modal>
       )}
 
-      {/* ADD SUPPLIER MODAL */}
+      {/* ── MODAL: ADD SUPPLIER ────────────────────────────────────── */}
       {showSupplier && (
-        <Modal title="Add Chemical Supplier" onClose={() => setShowSupplier(false)}>
-          <form onSubmit={handleAddSupplier} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="section-label">Company Name *</label>
+        <Modal title="Register Chemical Supplier" onClose={() => setShowSupplier(false)}>
+          <form onSubmit={handleCreateSupplier} className="space-y-3.5 text-xs">
+            <div>
+              <label className="text-muted font-mono uppercase block mb-1">Company / Vendor Name:</label>
               <input
+                type="text"
                 value={supForm.name}
-                onChange={(e) => setSupForm({ ...supForm, name: e.target.value })}
-                placeholder="e.g. Habesha Chemical PLC"
-                className="input"
+                onChange={(e) => setSupForm((p) => ({ ...p, name: e.target.value }))}
+                placeholder="e.g. Addis Chemical Trading PLC"
                 required
+                className="input"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="section-label">Phone Contact *</label>
+            <div>
+              <label className="text-muted font-mono uppercase block mb-1">Phone / Contact:</label>
               <input
+                type="text"
                 value={supForm.contact}
-                onChange={(e) => setSupForm({ ...supForm, contact: e.target.value })}
-                placeholder="+251 11..."
-                className="input font-mono"
+                onChange={(e) => setSupForm((p) => ({ ...p, contact: e.target.value }))}
+                placeholder="e.g. +251 911 234 567"
                 required
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="section-label">Email Address</label>
-              <input
-                type="email"
-                value={supForm.email}
-                onChange={(e) => setSupForm({ ...supForm, email: e.target.value })}
-                placeholder="sales@company.et"
                 className="input"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="section-label">Supplied Products</label>
+            <div>
+              <label className="text-muted font-mono uppercase block mb-1">Supplied Products:</label>
               <input
+                type="text"
                 value={supForm.products}
-                onChange={(e) => setSupForm({ ...supForm, products: e.target.value })}
-                placeholder="e.g. Foam Shampoo, Wax, Degreasers"
+                onChange={(e) => setSupForm((p) => ({ ...p, products: e.target.value }))}
+                placeholder="e.g. LARGO 5L jerrycans, Engine degreaser"
                 className="input"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="section-label">Warehouse Address</label>
+            <div>
+              <label className="text-muted font-mono uppercase block mb-1">Warehouse Address:</label>
               <input
+                type="text"
                 value={supForm.address}
-                onChange={(e) => setSupForm({ ...supForm, address: e.target.value })}
+                onChange={(e) => setSupForm((p) => ({ ...p, address: e.target.value }))}
                 placeholder="e.g. Kaliti Industrial Zone, Addis Ababa"
                 className="input"
               />
             </div>
 
-            <div className="pt-3 flex gap-2 justify-end">
-              <button type="button" onClick={() => setShowSupplier(false)} className="btn btn-ghost">
-                Cancel
-              </button>
-              <button type="submit" className="btn btn-primary">
-                Save Supplier
-              </button>
-            </div>
+            <button type="submit" className="btn btn-primary w-full py-2.5 text-xs font-semibold rounded-xl mt-2">
+              Save Supplier
+            </button>
           </form>
         </Modal>
       )}

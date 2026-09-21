@@ -18,12 +18,12 @@ import {
   Customer,
   Expense,
   InventoryItem,
-  Notification,
   Profile,
   PurchaseOrder,
   SoapRequest,
   Supplier,
   WashService,
+  WashStatus,
   WashTransaction,
 } from "./types";
 
@@ -66,11 +66,11 @@ function setLocal<T>(key: string, value: T): void {
   }
 }
 
-/* Fast resilient helper: queries Supabase with a fast timeout and graceful fallback to local storage */
+/* Fast resilient helper: queries Supabase with timeout and falls back to local storage only on failure/null */
 async function supabaseCall<T>(
-  supabasePromise: Promise<{ data: T | null; error: any }>,
+  supabasePromise: Promise<{ data: any; error: any }>,
   localFallback: () => T,
-  timeoutMs = 1200
+  timeoutMs = 1500
 ): Promise<T> {
   try {
     const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
@@ -79,12 +79,6 @@ async function supabaseCall<T>(
     const { data, error } = await Promise.race([supabasePromise, timeoutPromise]);
     if (error || data === null || data === undefined) {
       return localFallback();
-    }
-    if (Array.isArray(data) && data.length === 0) {
-      const fallback = localFallback();
-      if (Array.isArray(fallback) && fallback.length > 0) {
-        return fallback;
-      }
     }
     return data as T;
   } catch {
@@ -99,11 +93,11 @@ async function supabaseCall<T>(
 export const DataStore = {
   // ── INVENTORY ──────────────────────────────────────────────
   async getInventory(): Promise<InventoryItem[]> {
-    return supabaseCall(
+    return supabaseCall<InventoryItem[]>(
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("inventory").select("*").order("product_name");
-        return { data, error };
+        return { data: data as InventoryItem[] | null, error };
       })(),
       () => getLocal<InventoryItem[]>(STORAGE_KEYS.INVENTORY, SEED_INVENTORY)
     );
@@ -123,11 +117,11 @@ export const DataStore = {
       status,
     };
 
-    return supabaseCall(
+    return supabaseCall<InventoryItem>(
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("inventory").insert(newItem).select().single();
-        return { data, error };
+        return { data: data as InventoryItem | null, error };
       })(),
       () => {
         const items = getLocal<InventoryItem[]>(STORAGE_KEYS.INVENTORY, SEED_INVENTORY);
@@ -148,12 +142,14 @@ export const DataStore = {
       () => {
         const items = getLocal<InventoryItem[]>(STORAGE_KEYS.INVENTORY, SEED_INVENTORY);
         const updated = items.map((i) => {
-          if (i.id !== id) return i;
-          const totalMl = updates.total_ml !== undefined ? Number(updates.total_ml) : i.total_ml;
-          const minMl = updates.min_stock_ml !== undefined ? Number(updates.min_stock_ml) : i.min_stock_ml;
-          const status: "ok" | "low" | "critical" =
-            totalMl <= minMl * 0.4 ? "critical" : totalMl <= minMl ? "low" : "ok";
-          return { ...i, ...updates, total_ml: totalMl, min_stock_ml: minMl, status };
+          if (i.id === id) {
+            const next = { ...i, ...updates };
+            const total = Number(next.total_ml);
+            const min = Number(next.min_stock_ml);
+            next.status = total <= min * 0.4 ? "critical" : total <= min ? "low" : "ok";
+            return next;
+          }
+          return i;
         });
         setLocal(STORAGE_KEYS.INVENTORY, updated);
         return undefined;
@@ -161,72 +157,94 @@ export const DataStore = {
     );
   },
 
+  async deleteInventoryItem(id: string): Promise<void> {
+    await supabaseCall(
+      (async () => {
+        const supabase = createClient();
+        const { error } = await supabase.from("inventory").delete().eq("id", id);
+        return { data: null, error };
+      })(),
+      () => {
+        const items = getLocal<InventoryItem[]>(STORAGE_KEYS.INVENTORY, SEED_INVENTORY);
+        setLocal(STORAGE_KEYS.INVENTORY, items.filter((i) => i.id !== id));
+        return undefined;
+      }
+    );
+  },
+
   // ── SUPPLIERS ──────────────────────────────────────────────
   async getSuppliers(): Promise<Supplier[]> {
-    return supabaseCall(
+    return supabaseCall<Supplier[]>(
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("suppliers").select("*").order("name");
-        return { data, error };
+        return { data: data as Supplier[] | null, error };
       })(),
       () => getLocal<Supplier[]>(STORAGE_KEYS.SUPPLIERS, SEED_SUPPLIERS)
     );
   },
 
-  async createSupplier(sup: Omit<Supplier, "id">): Promise<Supplier> {
-    const newSup: Supplier = { id: "sup-" + Date.now(), ...sup };
-    return supabaseCall(
+  async createSupplier(supplier: Omit<Supplier, "id">): Promise<Supplier> {
+    const newSupplier: Supplier = {
+      id: "sup-" + Date.now(),
+      ...supplier,
+    };
+
+    return supabaseCall<Supplier>(
       (async () => {
         const supabase = createClient();
-        const { data, error } = await supabase.from("suppliers").insert(newSup).select().single();
-        return { data, error };
+        const { data, error } = await supabase.from("suppliers").insert(newSupplier).select().single();
+        return { data: data as Supplier | null, error };
       })(),
       () => {
-        const current = getLocal<Supplier[]>(STORAGE_KEYS.SUPPLIERS, SEED_SUPPLIERS);
-        const updated = [newSup, ...current];
-        setLocal(STORAGE_KEYS.SUPPLIERS, updated);
-        return newSup;
+        const list = getLocal<Supplier[]>(STORAGE_KEYS.SUPPLIERS, SEED_SUPPLIERS);
+        setLocal(STORAGE_KEYS.SUPPLIERS, [newSupplier, ...list]);
+        return newSupplier;
       }
     );
   },
 
   // ── PURCHASE ORDERS ────────────────────────────────────────
   async getPurchaseOrders(): Promise<PurchaseOrder[]> {
-    return supabaseCall(
+    return supabaseCall<PurchaseOrder[]>(
       (async () => {
         const supabase = createClient();
-        const { data, error } = await supabase
-          .from("purchase_orders")
-          .select("*")
-          .order("ordered_at", { ascending: false });
-        return { data, error };
+        const { data, error } = await supabase.from("purchase_orders").select("*").order("ordered_at", { ascending: false });
+        return { data: data as PurchaseOrder[] | null, error };
       })(),
       () => getLocal<PurchaseOrder[]>(STORAGE_KEYS.PURCHASE_ORDERS, SEED_PO)
     );
   },
 
-  async createPurchaseOrder(po: Omit<PurchaseOrder, "id" | "po_number" | "ordered_at" | "status" | "received_at">): Promise<PurchaseOrder> {
-    const count = getLocal<PurchaseOrder[]>(STORAGE_KEYS.PURCHASE_ORDERS, SEED_PO).length;
-    const poNumber = `PO-${1000 + count + 1}`;
+  async createPurchaseOrder(po: {
+    supplier_id: string;
+    supplier_name: string;
+    inventory_id: string | null;
+    product_name: string;
+    qty_ml: number;
+    unit_cost: number;
+    notes?: string;
+  }): Promise<PurchaseOrder> {
+    const total_cost = (po.qty_ml / 1000) * po.unit_cost;
+    const current = getLocal<PurchaseOrder[]>(STORAGE_KEYS.PURCHASE_ORDERS, SEED_PO);
     const newPO: PurchaseOrder = {
       id: "po-" + Date.now(),
-      po_number: poNumber,
-      ordered_at: new Date().toISOString(),
-      received_at: null,
+      po_number: `PO-2025-${String(current.length + 1).padStart(3, "0")}`,
       status: "pending",
+      ordered_at: new Date().toISOString().slice(0, 10),
+      received_at: null,
+      total_cost,
       ...po,
-      total_cost: po.qty_ml * po.unit_cost,
     };
 
-    return supabaseCall(
+    return supabaseCall<PurchaseOrder>(
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("purchase_orders").insert(newPO).select().single();
-        return { data, error };
+        return { data: data as PurchaseOrder | null, error };
       })(),
       () => {
-        const pos = getLocal<PurchaseOrder[]>(STORAGE_KEYS.PURCHASE_ORDERS, SEED_PO);
-        setLocal(STORAGE_KEYS.PURCHASE_ORDERS, [newPO, ...pos]);
+        setLocal(STORAGE_KEYS.PURCHASE_ORDERS, [newPO, ...current]);
         return newPO;
       }
     );
@@ -236,14 +254,17 @@ export const DataStore = {
     await supabaseCall(
       (async () => {
         const supabase = createClient();
-        const pos = getLocal<PurchaseOrder[]>(STORAGE_KEYS.PURCHASE_ORDERS, SEED_PO);
-        const target = pos.find((p) => p.id === id);
-        if (!target) return { data: null, error: null };
-        const now = new Date().toISOString();
-        let error: { message: string } | null = null;
+        let error: any = null;
         try {
-          await supabase.from("purchase_orders").update({ status: "received", received_at: now }).eq("id", id);
-          if (target.inventory_id) {
+          const { error: poError } = await supabase
+            .from("purchase_orders")
+            .update({ status: "received", received_at: new Date().toISOString() })
+            .eq("id", id);
+          if (poError) throw poError;
+
+          const currentPOs = getLocal<PurchaseOrder[]>(STORAGE_KEYS.PURCHASE_ORDERS, SEED_PO);
+          const target = currentPOs.find((p) => p.id === id);
+          if (target && target.inventory_id) {
             const { data: inv, error: invError } = await supabase
               .from("inventory")
               .select("total_ml")
@@ -294,14 +315,25 @@ export const DataStore = {
 
   // ── CUSTOMERS ──────────────────────────────────────────────
   async getCustomers(): Promise<Customer[]> {
-    return supabaseCall(
+    return supabaseCall<Customer[]>(
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase
           .from("customers")
           .select("id, full_name, phone, notes, created_at, vehicles(count)")
           .order("created_at", { ascending: false });
-        return { data, error };
+        if (data) {
+          const mapped: Customer[] = (data as any[]).map((c) => ({
+            id: c.id,
+            full_name: c.full_name,
+            phone: c.phone,
+            notes: c.notes,
+            created_at: c.created_at,
+            vehicle_count: Array.isArray(c.vehicles) && c.vehicles[0] ? c.vehicles[0].count : (c.vehicles?.count ?? 1),
+          }));
+          return { data: mapped, error };
+        }
+        return { data: null, error };
       })(),
       () => getLocal<Customer[]>(STORAGE_KEYS.CUSTOMERS, SEED_CUSTOMERS)
     );
@@ -314,20 +346,18 @@ export const DataStore = {
       phone: cust.phone || null,
       notes: cust.notes || null,
       created_at: new Date().toISOString(),
-      vehicle_count: 0,
-      total_spent: 0,
-      last_visit: null,
+      vehicle_count: 1,
     };
 
-    return supabaseCall(
+    return supabaseCall<Customer>(
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("customers").insert(newCust).select().single();
-        return { data, error };
+        return { data: data as Customer | null, error };
       })(),
       () => {
-        const customers = getLocal<Customer[]>(STORAGE_KEYS.CUSTOMERS, SEED_CUSTOMERS);
-        setLocal(STORAGE_KEYS.CUSTOMERS, [newCust, ...customers]);
+        const list = getLocal<Customer[]>(STORAGE_KEYS.CUSTOMERS, SEED_CUSTOMERS);
+        setLocal(STORAGE_KEYS.CUSTOMERS, [newCust, ...list]);
         return newCust;
       }
     );
@@ -350,13 +380,13 @@ export const DataStore = {
 
   // ── WASH TRANSACTIONS ──────────────────────────────────────
   async getWashTransactions(from?: string, to?: string): Promise<WashTransaction[]> {
-    return supabaseCall(
+    return supabaseCall<WashTransaction[]>(
       (async () => {
         const supabase = createClient();
         let q = supabase
           .from("wash_transactions")
           .select(
-            "id, receipt_number, price, soap_used_ml, payment_method, payment_status, services, bay_number, started_at, completed_at, actual_minutes, vehicle_type_id, washer_id, profiles(full_name), vehicles(plate, customers(full_name))"
+            "id, receipt_number, price, soap_used_ml, payment_method, payment_status, services, bay_number, status, started_at, completed_at, actual_minutes, vehicle_type_id, washer_id, profiles(full_name), vehicles(plate, customers(full_name, phone))"
           )
           .order("started_at", { ascending: false });
 
@@ -364,7 +394,31 @@ export const DataStore = {
         if (to) q = q.lte("started_at", `${to}T23:59:59`);
 
         const { data, error } = await q;
-        return { data, error };
+        if (data) {
+          const mapped: WashTransaction[] = (data as any[]).map((w) => ({
+            id: w.id,
+            receipt_number: w.receipt_number || "WASH-" + w.id.slice(0, 6).toUpperCase(),
+            price: Number(w.price || 0),
+            soap_used_ml: Number(w.soap_used_ml || 0),
+            payment_method: w.payment_method || "cash",
+            payment_status: w.payment_status || "paid",
+            services: w.services || ["exterior"],
+            bay_number: w.bay_number || 1,
+            status: (w.status as WashStatus) || "completed",
+            started_at: w.started_at,
+            completed_at: w.completed_at,
+            actual_minutes: w.actual_minutes,
+            vehicle_type_id: w.vehicle_type_id || "small",
+            washer_id: w.washer_id,
+            washer_name: w.profiles?.full_name || w.washer_name || "Assigned Attendant",
+            plate: w.vehicles?.plate || w.plate || "ET-0000",
+            customer_name: w.vehicles?.customers?.full_name || w.customer_name || "Guest Customer",
+            customer_phone: w.vehicles?.customers?.phone || w.customer_phone,
+            commission_amount: Math.round(Number(w.price || 0) * 0.2), // 20% standard attendant commission
+          }));
+          return { data: mapped, error };
+        }
+        return { data: null, error };
       })(),
       () => {
         const localWashes = getLocal<WashTransaction[]>(STORAGE_KEYS.WASH_TRANSACTIONS, SEED_WASHES);
@@ -379,79 +433,72 @@ export const DataStore = {
     );
   },
 
-  async createWashTransaction(tx: Omit<WashTransaction, "id" | "receipt_number" | "started_at">): Promise<WashTransaction> {
-    const currentWashes = getLocal<WashTransaction[]>(STORAGE_KEYS.WASH_TRANSACTIONS, SEED_WASHES);
-    const receiptNumber = `REC-${10000 + currentWashes.length + 1}`;
-    const newTx: WashTransaction = {
-      ...tx,
-      id: "tx-" + Date.now(),
-      receipt_number: receiptNumber,
+  async createWashTransaction(
+    wash: Omit<WashTransaction, "id" | "started_at" | "completed_at"> & { completed_at?: string | null }
+  ): Promise<WashTransaction> {
+    const current = getLocal<WashTransaction[]>(STORAGE_KEYS.WASH_TRANSACTIONS, SEED_WASHES);
+    const newWash: WashTransaction = {
+      id: "wash-" + Date.now(),
+      receipt_number: `RC-${new Date().toISOString().slice(2, 4)}${String(current.length + 1).padStart(4, "0")}`,
       started_at: new Date().toISOString(),
-      completed_at: tx.completed_at || (tx.status === "completed" ? new Date().toISOString() : null),
+      commission_amount: Math.round(wash.price * 0.2),
+      ...wash,
+      completed_at: wash.completed_at || null,
+      status: wash.status || "in_progress",
     };
 
-    return supabaseCall(
+    return supabaseCall<WashTransaction>(
       (async () => {
         const supabase = createClient();
-        // ensure vehicle exists
-        let vehicleId = tx.vehicle_id;
-        if (!vehicleId && tx.plate) {
-          const { data: v } = await supabase
-            .from("vehicles")
-            .upsert({ plate: tx.plate, vehicle_type_id: tx.vehicle_type_id }, { onConflict: "plate" })
-            .select("id")
-            .single();
-          if (v) vehicleId = v.id;
-        }
-        await supabase.from("wash_transactions").insert({
-          receipt_number: receiptNumber,
-          vehicle_id: vehicleId,
-          vehicle_type_id: tx.vehicle_type_id,
-          washer_id: tx.washer_id,
-          price: tx.price,
-          soap_used_ml: tx.soap_used_ml,
-          payment_method: tx.payment_method || "cash",
-          payment_status: tx.payment_status || "paid",
-          services: tx.services || [],
-          bay_number: tx.bay_number || 1,
-          status: tx.status || "completed",
-          completed_at: newTx.completed_at,
-        });
-        return { data: newTx, error: null };
+        const { data, error } = await supabase.from("wash_transactions").insert(newWash).select().single();
+        return { data: data as WashTransaction | null, error };
       })(),
       () => {
-        // Deduct washer local soap balance
-        const washerStocks = getLocal<Record<string, number>>(STORAGE_KEYS.WASHERS_STOCK, {
-          "w-1": 750,
-          "w-2": 540,
-          "w-3": 180,
-          "w-4": 620,
-        });
-        washerStocks[tx.washer_id] = Math.max(0, (washerStocks[tx.washer_id] ?? 500) - tx.soap_used_ml);
-        setLocal(STORAGE_KEYS.WASHERS_STOCK, washerStocks);
+        setLocal(STORAGE_KEYS.WASH_TRANSACTIONS, [newWash, ...current]);
 
-        setLocal(STORAGE_KEYS.WASH_TRANSACTIONS, [newTx, ...currentWashes]);
-        return newTx;
+        // Auto deduct from washer soap stock in local storage
+        if (wash.washer_id && wash.soap_used_ml) {
+          const washerStocks = getLocal<Record<string, number>>(STORAGE_KEYS.WASHERS_STOCK, {
+            "w-1": 750,
+            "w-2": 540,
+            "w-3": 180,
+            "w-4": 620,
+          });
+          washerStocks[wash.washer_id] = Math.max(0, (washerStocks[wash.washer_id] ?? 800) - wash.soap_used_ml);
+          setLocal(STORAGE_KEYS.WASHERS_STOCK, washerStocks);
+        }
+
+        return newWash;
       }
     );
   },
 
-  async updateWashStatus(id: string, status: WashTransaction["status"]): Promise<void> {
+  async updateWashStatus(id: string, status: WashStatus): Promise<void> {
+    const isCompleted = status === "completed";
     await supabaseCall(
       (async () => {
         const supabase = createClient();
-        const { error } = await supabase.from("wash_transactions").update({ status }).eq("id", id);
+        const updatePayload: any = { status };
+        if (isCompleted) {
+          updatePayload.completed_at = new Date().toISOString();
+        }
+        const { error } = await supabase
+          .from("wash_transactions")
+          .update(updatePayload)
+          .eq("id", id);
         return { data: null, error };
       })(),
       () => {
         const washes = getLocal<WashTransaction[]>(STORAGE_KEYS.WASH_TRANSACTIONS, SEED_WASHES);
         const updated = washes.map((w) => {
-          if (w.id !== id) return w;
-          return {
-            ...w,
-            status,
-            completed_at: status === "completed" ? (w.completed_at || new Date().toISOString()) : w.completed_at,
-          };
+          if (w.id === id) {
+            return {
+              ...w,
+              status,
+              completed_at: isCompleted ? (w.completed_at || new Date().toISOString()) : w.completed_at,
+            };
+          }
+          return w;
         });
         setLocal(STORAGE_KEYS.WASH_TRANSACTIONS, updated);
         return undefined;
@@ -461,7 +508,7 @@ export const DataStore = {
 
   // ── SOAP REQUESTS ──────────────────────────────────────────
   async getSoapRequests(): Promise<SoapRequest[]> {
-    return supabaseCall(
+    return supabaseCall<SoapRequest[]>(
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase
@@ -470,7 +517,23 @@ export const DataStore = {
             "id, request_number, quantity_requested, quantity_approved, status, notes, created_at, washer_id, inventory_id, profiles(full_name), inventory(product_name)"
           )
           .order("created_at", { ascending: false });
-        return { data, error };
+        if (data) {
+          const mapped: SoapRequest[] = (data as any[]).map((r) => ({
+            id: r.id,
+            request_number: r.request_number || "SR-" + r.id.slice(0, 5),
+            washer_id: r.washer_id,
+            washer_name: r.profiles?.full_name || r.washer_name || "Washer",
+            inventory_id: r.inventory_id,
+            product_name: r.inventory?.product_name || r.product_name || "Largo Detergent",
+            quantity_requested: Number(r.quantity_requested || 0),
+            quantity_approved: r.quantity_approved ? Number(r.quantity_approved) : null,
+            status: r.status || "pending",
+            notes: r.notes,
+            created_at: r.created_at,
+          }));
+          return { data: mapped, error };
+        }
+        return { data: null, error };
       })(),
       () => getLocal<SoapRequest[]>(STORAGE_KEYS.SOAP_REQUESTS, SEED_REQUESTS)
     );
@@ -494,7 +557,7 @@ export const DataStore = {
       ...req,
     };
 
-    return supabaseCall(
+    return supabaseCall<SoapRequest>(
       (async () => {
         const supabase = createClient();
         await supabase.from("soap_requests").insert({
@@ -551,8 +614,7 @@ export const DataStore = {
             "w-3": 180,
             "w-4": 620,
           });
-          washerStocks[target.washer_id] =
-            (washerStocks[target.washer_id] ?? 0) + qty;
+          washerStocks[target.washer_id] = (washerStocks[target.washer_id] ?? 0) + qty;
           setLocal(STORAGE_KEYS.WASHERS_STOCK, washerStocks);
         }
 
@@ -563,8 +625,6 @@ export const DataStore = {
         return { data: null, error: null };
       })(),
       () => {
-        // fallback already handled inside supabaseCall; but we need to also perform local updates.
-        // For simplicity, we will reuse same logic as try block but using local only.
         const current = getLocal<SoapRequest[]>(STORAGE_KEYS.SOAP_REQUESTS, SEED_REQUESTS);
         const target = current.find((r) => r.id === id);
         if (!target) return undefined;
@@ -593,8 +653,7 @@ export const DataStore = {
             "w-3": 180,
             "w-4": 620,
           });
-          washerStocks[target.washer_id] =
-            (washerStocks[target.washer_id] ?? 0) + qty;
+          washerStocks[target.washer_id] = (washerStocks[target.washer_id] ?? 0) + qty;
           setLocal(STORAGE_KEYS.WASHERS_STOCK, washerStocks);
         }
         return undefined;
@@ -604,33 +663,33 @@ export const DataStore = {
 
   // ── EXPENSES ───────────────────────────────────────────────
   async getExpenses(): Promise<Expense[]> {
-    return supabaseCall(
+    return supabaseCall<Expense[]>(
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("expenses").select("*").order("incurred_on", { ascending: false });
-        return { data, error };
+        return { data: data as Expense[] | null, error };
       })(),
       () => getLocal<Expense[]>(STORAGE_KEYS.EXPENSES, SEED_EXPENSES)
     );
   },
 
-  async createExpense(exp: Omit<Expense, "id" | "created_at">): Promise<Expense> {
-    const newExp: Expense = {
+  async createExpense(expense: Omit<Expense, "id" | "created_at">): Promise<Expense> {
+    const newExpense: Expense = {
       id: "exp-" + Date.now(),
       created_at: new Date().toISOString(),
-      ...exp,
+      ...expense,
     };
 
-    return supabaseCall(
+    return supabaseCall<Expense>(
       (async () => {
         const supabase = createClient();
-        const { data, error } = await supabase.from("expenses").insert(newExp).select().single();
-        return { data, error };
+        const { data, error } = await supabase.from("expenses").insert(newExpense).select().single();
+        return { data: data as Expense | null, error };
       })(),
       () => {
         const list = getLocal<Expense[]>(STORAGE_KEYS.EXPENSES, SEED_EXPENSES);
-        setLocal(STORAGE_KEYS.EXPENSES, [newExp, ...list]);
-        return newExp;
+        setLocal(STORAGE_KEYS.EXPENSES, [newExpense, ...list]);
+        return newExpense;
       }
     );
   },
@@ -652,15 +711,13 @@ export const DataStore = {
 
   // ── WASHER & STAFF STATS ───────────────────────────────────
   async getWashersStock(): Promise<
-    { id: string; name: string; soap: number; carsToday: number; revenueToday: number; phone?: string }[]
+    { id: string; name: string; soap: number; carsToday: number; revenueToday: number; commissionToday: number; phone?: string }[]
   > {
-    // This method already uses local washerStocks; we still need to fetch from Supabase for washes etc.
-    // We'll call supabase for washes, expenses etc., but fallback to local if supabase not configured.
     return supabaseCall(
       (async () => {
         const washes = await DataStore.getWashTransactions();
         const today = new Date().toISOString().slice(0, 10);
-        const todayWashes = washes.filter((w) => w.started_at.startsWith(today) && w.status === "completed");
+        const todayWashes = washes.filter((w) => w.started_at.startsWith(today) && w.status !== "cancelled");
         const washerStocks = getLocal<Record<string, number>>(STORAGE_KEYS.WASHERS_STOCK, {
           "w-1": 750,
           "w-2": 540,
@@ -668,28 +725,29 @@ export const DataStore = {
           "w-4": 620,
         });
 
-        return SEED_WASHERS.map((w) => {
-          const myToday = todayWashes.filter(
-            (tw) => tw.washer_id === w.id || tw.washer_name === w.name
-          );
+        const list = SEED_WASHERS.map((w) => {
+          const myToday = todayWashes.filter((tw) => tw.washer_id === w.id || tw.washer_name === w.name);
+          const revenueToday = myToday.reduce((s, tw) => s + tw.price, 0);
           return {
             id: w.id,
             name: w.name,
             soap: washerStocks[w.id] ?? w.soap,
-            carsToday: myToday.length || w.carsToday,
-            revenueToday: myToday.reduce((s, tw) => s + tw.price, 0) || w.revenueToday,
+            carsToday: myToday.length,
+            revenueToday,
+            commissionToday: Math.round(revenueToday * 0.2), // 20% commission
             phone: w.phone,
           };
         });
+        return { data: list, error: null };
       })(),
       () => {
-        // fallback to seed data
         return SEED_WASHERS.map((w) => ({
           id: w.id,
           name: w.name,
           soap: w.soap,
           carsToday: w.carsToday,
           revenueToday: w.revenueToday,
+          commissionToday: Math.round(w.revenueToday * 0.2),
           phone: w.phone,
         }));
       }
@@ -697,14 +755,127 @@ export const DataStore = {
   },
 
   async getStaff(): Promise<Profile[]> {
-    return supabaseCall(
+    return supabaseCall<Profile[]>(
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("profiles").select("*").order("full_name");
-        return { data, error };
+        return { data: data as Profile[] | null, error };
       })(),
       () => getLocal<Profile[]>(STORAGE_KEYS.STAFF, SEED_STAFF)
     );
+  },
+
+  // ── SHIFT CASH SETTLEMENT & DRAWER RECONCILIATION ─────────
+  async getShiftSettlement() {
+    const today = new Date().toISOString().slice(0, 10);
+    const [washes, expenses] = await Promise.all([
+      this.getWashTransactions(today, today),
+      this.getExpenses(),
+    ]);
+
+    const todayExpenses = expenses.filter((e) => e.incurred_on.startsWith(today));
+    const totalExpenses = todayExpenses.reduce((s, e) => s + Number(e.amount), 0);
+
+    let cashTotal = 0;
+    let telebirrTotal = 0;
+    let cbeBirrTotal = 0;
+    let cardTotal = 0;
+    let accountTotal = 0;
+    let totalCommission = 0;
+
+    for (const w of washes) {
+      if (w.status === "cancelled") continue;
+      const amt = Number(w.price || 0);
+      totalCommission += w.commission_amount || Math.round(amt * 0.2);
+
+      switch (w.payment_method) {
+        case "cash":
+          cashTotal += amt;
+          break;
+        case "telebirr":
+          telebirrTotal += amt;
+          break;
+        case "cbe_birr":
+          cbeBirrTotal += amt;
+          break;
+        case "card":
+          cardTotal += amt;
+          break;
+        case "account":
+          accountTotal += amt;
+          break;
+      }
+    }
+
+    const totalRevenue = cashTotal + telebirrTotal + cbeBirrTotal + cardTotal + accountTotal;
+    const netCashInDrawer = Math.max(0, cashTotal - totalExpenses - totalCommission);
+
+    return {
+      today,
+      washesCount: washes.length,
+      totalRevenue,
+      cashTotal,
+      telebirrTotal,
+      cbeBirrTotal,
+      cardTotal,
+      accountTotal,
+      totalCommission,
+      totalExpenses,
+      netCashInDrawer,
+    };
+  },
+
+  // ── CHEMICAL THEFT & VARIANCE TRACKER ─────────────────────
+  async getChemicalVariance() {
+    const today = new Date().toISOString().slice(0, 10);
+    const [washes, requests] = await Promise.all([
+      this.getWashTransactions(today, today),
+      this.getSoapRequests(),
+    ]);
+
+    const activeWashes = washes.filter((w) => w.status !== "cancelled");
+    const theoreticalSoapUsed = activeWashes.reduce((sum, w) => sum + (w.soap_used_ml || 0), 0);
+
+    const todayApprovedReqs = requests.filter(
+      (r) => r.created_at.startsWith(today) && r.status === "approved"
+    );
+    const actualSoapDispensed = todayApprovedReqs.reduce(
+      (sum, r) => sum + (r.quantity_approved || r.quantity_requested || 0),
+      0
+    );
+
+    const varianceMl = actualSoapDispensed - theoreticalSoapUsed;
+    const isExcessive = varianceMl > 500;
+    const isUnderuse = varianceMl < -300;
+
+    return {
+      carsWashed: activeWashes.length,
+      theoreticalSoapUsed,
+      actualSoapDispensed,
+      varianceMl,
+      status: isExcessive ? "excessive_loss" : isUnderuse ? "possible_underwash" : "normal",
+    };
+  },
+
+  // ── LOYALTY & REWARDS ────────────────────────────────────
+  async getLoyaltyStatus(plate: string) {
+    if (!plate || plate.trim().length < 3) return null;
+    const cleanPlate = plate.trim().toUpperCase();
+    const washes = await this.getWashTransactions();
+    const plateWashes = washes.filter(
+      (w) => w.plate?.toUpperCase() === cleanPlate && w.status === "completed"
+    );
+
+    const count = plateWashes.length;
+    const isFifthWash = count > 0 && count % 5 === 4; // next is 5th
+    const isTenthWash = count > 0 && count % 10 === 9; // next is 10th
+
+    return {
+      plate: cleanPlate,
+      totalPastWashes: count,
+      nextDiscount: isTenthWash ? "FREE WASH (10th Visit VIP)" : isFifthWash ? "50% OFF (5th Loyalty Visit)" : null,
+      rewardActive: isFifthWash || isTenthWash,
+    };
   },
 
   // ── SERVICES & CATALOG ─────────────────────────────────────

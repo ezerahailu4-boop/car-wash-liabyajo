@@ -56,6 +56,17 @@ function createFallbackClient() {
     },
     from: () => createFallbackQueryBuilder(),
     rpc: async () => ({ data: null, error: { message: "Supabase is not configured (missing env vars)." } }),
+    channel: (_name: string) => {
+      const ch: any = {
+        on: () => ch,
+        subscribe: (cb?: (status: string) => void) => {
+          if (cb) cb("SUBSCRIBED");
+          return ch;
+        },
+        unsubscribe: () => {},
+      };
+      return ch;
+    },
   };
 }
 

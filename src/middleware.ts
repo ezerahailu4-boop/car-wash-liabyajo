@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC: string[] = ["/login", "/reset-password", "/api/setup-sql"];
 
 const ROLE_HOME: Record<string, string> = {
-  administrator: "/",
+  administrator: "/admin",
   manager: "/",
   store_keeper: "/store",
   washer: "/portal",
@@ -12,6 +12,7 @@ const ROLE_HOME: Record<string, string> = {
 
 const ROLE_ALLOWED: Record<string, string[]> = {
   administrator: [
+    "/admin",
     "/",
     "/wash",
     "/inventory",
@@ -22,9 +23,8 @@ const ROLE_ALLOWED: Record<string, string[]> = {
     "/reports",
     "/store",
     "/portal",
-    "/admin",
   ],
-  manager: ["/", "/wash", "/inventory", "/requests", "/employees", "/customers", "/expenses", "/reports"],
+  manager: ["/", "/wash", "/inventory", "/requests", "/employees", "/customers", "/expenses", "/reports", "/store", "/portal"],
   store_keeper: ["/store"],
   washer: ["/portal"],
 };
@@ -35,20 +35,10 @@ export async function middleware(request: NextRequest) {
 
   if (PUBLIC.includes(pathname) || pathname.startsWith("/api")) return response;
 
-  // 1. Check local session cookie first (for instant fast login)
-  const roleCookie = request.cookies.get("washos_role")?.value;
-  const sessionCookie = request.cookies.get("washos_session")?.value;
+  let activeRole: string | undefined;
 
-  let activeRole = roleCookie;
-  if (!activeRole && sessionCookie) {
-    try {
-      const parsed = JSON.parse(decodeURIComponent(sessionCookie));
-      activeRole = parsed.role;
-    } catch { /* ignore */ }
-  }
-
-  // 2. If no local session cookie, check Supabase Auth
-  if (!activeRole && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  // 1. Check Supabase Auth first when configured
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
     try {
       const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -77,6 +67,20 @@ export async function middleware(request: NextRequest) {
         activeRole = profile?.role ?? "washer";
       }
     } catch { /* ignore network error */ }
+  }
+
+  // 2. Fallback to active demo/local session if Supabase Auth not active
+  if (!activeRole) {
+    const roleCookie = request.cookies.get("washos_role")?.value;
+    const sessionCookie = request.cookies.get("washos_session")?.value;
+    if (roleCookie) {
+      activeRole = roleCookie;
+    } else if (sessionCookie) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(sessionCookie));
+        activeRole = parsed.role;
+      } catch { /* ignore */ }
+    }
   }
 
   // If still no authenticated role, redirect to login

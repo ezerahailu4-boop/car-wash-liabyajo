@@ -300,6 +300,63 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {/* Live Bay Stations & Shift Cash Drawer Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="card glass-card p-4 border-line flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono font-bold uppercase text-muted flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" /> Live Bay Stations
+            </span>
+            <button onClick={() => router.push("/wash")} className="text-xs text-accent hover:underline font-medium">
+              Open Bay Board →
+            </button>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="p-2.5 rounded-xl bg-accent/15 border border-accent/30 text-center">
+              <span className="text-[10px] font-mono text-muted block">Bay 1</span>
+              <span className="text-xs font-bold text-accent">Active</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-purple-500/15 border border-purple-500/30 text-center">
+              <span className="text-[10px] font-mono text-muted block">Bay 2</span>
+              <span className="text-xs font-bold text-purple-400">Drying</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-center">
+              <span className="text-[10px] font-mono text-muted block">Bay 3</span>
+              <span className="text-xs font-bold text-emerald-400">Ready</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-panel-2 border border-line text-center">
+              <span className="text-[10px] font-mono text-muted block">Bay 4</span>
+              <span className="text-xs font-medium text-muted">Clear</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="card glass-card p-4 border-line flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono font-bold uppercase text-muted flex items-center gap-1.5">
+              <Receipt size={14} className="text-accent" /> Today&apos;s Shift Cash Drawer
+            </span>
+            <button onClick={() => router.push("/expenses")} className="text-xs text-accent hover:underline font-medium">
+              Cash Audit →
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="p-2.5 rounded-xl bg-panel-2 border border-line text-center">
+              <span className="text-[10px] font-mono text-muted block">Physical Cash</span>
+              <span className="text-xs font-bold font-mono text-emerald-400">ETB 2,450</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-panel-2 border border-line text-center">
+              <span className="text-[10px] font-mono text-muted block">Telebirr/CBE</span>
+              <span className="text-xs font-bold font-mono text-sky-400">ETB 2,450</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-panel-2 border border-line text-center">
+              <span className="text-[10px] font-mono text-muted block">Commission</span>
+              <span className="text-xs font-bold font-mono text-amber">ETB 980</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Charts Row */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         {/* Revenue area chart */}
