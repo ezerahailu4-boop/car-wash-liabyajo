@@ -16,7 +16,13 @@ begin
     create type request_status as enum ('pending', 'approved', 'rejected');
   end if;
   if not exists (select 1 from pg_type where typname = 'wash_status') then
-    create type wash_status as enum ('queued', 'in_progress', 'completed', 'cancelled');
+    create type wash_status as enum ('queued', 'in_progress', 'drying', 'ready', 'completed', 'cancelled');
+  else
+    begin
+      alter type wash_status add value if not exists 'drying';
+      alter type wash_status add value if not exists 'ready';
+    exception when others then null;
+    end;
   end if;
 end $$;
 

@@ -90,7 +90,7 @@ function setLocal<T>(key: string, value: T): void {
 async function supabaseCall<T>(
   supabasePromise: Promise<{ data: any; error: any }>,
   localFallback: () => T,
-  timeoutMs = 1500
+  timeoutMs = 5000
 ): Promise<T> {
   try {
     const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
@@ -117,6 +117,9 @@ export const DataStore = {
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("inventory").select("*").order("product_name");
+        if (data && !error) {
+          setLocal(STORAGE_KEYS.INVENTORY, data);
+        }
         return { data: data as InventoryItem[] | null, error };
       })(),
       () => getLocal<InventoryItem[]>(STORAGE_KEYS.INVENTORY, SEED_INVENTORY)
@@ -222,6 +225,9 @@ export const DataStore = {
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("suppliers").select("*").order("name");
+        if (data && !error) {
+          setLocal(STORAGE_KEYS.SUPPLIERS, data);
+        }
         return { data: data as Supplier[] | null, error };
       })(),
       () => getLocal<Supplier[]>(STORAGE_KEYS.SUPPLIERS, SEED_SUPPLIERS)
@@ -271,6 +277,9 @@ export const DataStore = {
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("purchase_orders").select("*").order("ordered_at", { ascending: false });
+        if (data && !error) {
+          setLocal(STORAGE_KEYS.PURCHASE_ORDERS, data);
+        }
         return { data: data as PurchaseOrder[] | null, error };
       })(),
       () => getLocal<PurchaseOrder[]>(STORAGE_KEYS.PURCHASE_ORDERS, SEED_PO)
@@ -414,6 +423,7 @@ export const DataStore = {
             created_at: c.created_at,
             vehicle_count: Array.isArray(c.vehicles) && c.vehicles[0] ? c.vehicles[0].count : (c.vehicles?.count ?? 1),
           }));
+          setLocal(STORAGE_KEYS.CUSTOMERS, mapped);
           return { data: mapped, error };
         }
         return { data: null, error };
@@ -520,6 +530,9 @@ export const DataStore = {
             customer_phone: w.vehicles?.customers?.phone || w.customer_phone,
             commission_amount: Math.round(Number(w.price || 0) * 0.2), // 20% standard attendant commission
           }));
+          if (!from && !to) {
+            setLocal(STORAGE_KEYS.WASH_TRANSACTIONS, mapped);
+          }
           return { data: mapped, error };
         }
         return { data: null, error };
@@ -528,7 +541,7 @@ export const DataStore = {
         const localWashes = getLocal<WashTransaction[]>(STORAGE_KEYS.WASH_TRANSACTIONS, SEED_WASHES);
         if (!from && !to) return localWashes;
         return localWashes.filter((w) => {
-          const day = w.started_at.slice(0, 10);
+          const day = (w.started_at || "").slice(0, 10);
           if (from && day < from) return false;
           if (to && day > to) return false;
           return true;
@@ -727,6 +740,7 @@ export const DataStore = {
             notes: r.notes,
             created_at: r.created_at,
           }));
+          setLocal(STORAGE_KEYS.SOAP_REQUESTS, mapped);
           return { data: mapped, error };
         }
         return { data: null, error };
@@ -893,6 +907,9 @@ export const DataStore = {
       (async () => {
         const supabase = createClient();
         const { data, error } = await supabase.from("expenses").select("*").order("incurred_on", { ascending: false });
+        if (data && !error) {
+          setLocal(STORAGE_KEYS.EXPENSES, data);
+        }
         return { data: data as Expense[] | null, error };
       })(),
       () => getLocal<Expense[]>(STORAGE_KEYS.EXPENSES, SEED_EXPENSES)

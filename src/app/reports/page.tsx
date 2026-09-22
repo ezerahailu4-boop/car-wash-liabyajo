@@ -81,7 +81,7 @@ export default function ReportsPage() {
   // Daily Trend Map
   const dayMap: Record<string, { day: string; revenue: number; expenses: number }> = {};
   txns.forEach((t) => {
-    const day = t.started_at.slice(0, 10);
+    const day = (t.started_at || "").slice(0, 10);
     if (!dayMap[day]) dayMap[day] = { day, revenue: 0, expenses: 0 };
     dayMap[day].revenue += t.price;
   });
@@ -137,7 +137,7 @@ export default function ReportsPage() {
       ["Receipt Number", "Date", "Plate", "Vehicle Type", "Attendant", "Services", "Payment Method", "Price (ETB)", "Soap (ml)", "Minutes"],
       ...txns.map((t) => [
         t.receipt_number || "",
-        t.started_at.slice(0, 10),
+        (t.started_at || "").slice(0, 10),
         t.plate || "",
         t.vehicle_type_id,
         t.washer_name || "",
@@ -148,32 +148,33 @@ export default function ReportsPage() {
         t.actual_minutes || "",
       ]),
     ];
-    const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `washos-report-${from}-to-${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+
+    const csvContent = "data:text/csv;charset=utf-8," + rows.map((e) => e.join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `washos-report-${from}-to-${to}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   async function exportExcel() {
     const XLSX = await import("xlsx");
     const summarySheet = [
-      { Metric: "Gross Wash Revenue (ETB)", Value: totalRevenue },
-      { Metric: "Detergent Chemical Cost (ETB)", Value: detergentCost },
-      { Metric: "Operating Overhead & Expenses (ETB)", Value: totalExpenses },
-      { Metric: "Net Profit (ETB)", Value: netProfit },
-      { Metric: "Net Profit Margin (%)", Value: `${profitMargin}%` },
-      { Metric: "Total Cars Washed", Value: txns.length },
+      { Metric: "Total Revenue (ETB)", Value: totalRevenue },
+      { Metric: "Detergent Cost (ETB)", Value: detergentCost },
+      { Metric: "Operating Expenses (ETB)", Value: totalExpenses },
+      { Metric: "Net Operating Profit (ETB)", Value: netProfit },
+      { Metric: "Profit Margin (%)", Value: `${profitMargin}%` },
+      { Metric: "Total Washes Completed", Value: txns.length },
       { Metric: "Total Soap Used (ml)", Value: totalSoapUsed },
       { Metric: "Reporting Period", Value: `${from} to ${to}` },
     ];
 
     const txSheet = txns.map((t) => ({
       Receipt: t.receipt_number || "",
-      Date: t.started_at.slice(0, 10),
+      Date: (t.started_at || "").slice(0, 10),
       Plate: t.plate || "",
       Type: t.vehicle_type_id,
       Washer: t.washer_name || "",
@@ -214,7 +215,7 @@ export default function ReportsPage() {
       head: [["Receipt", "Date", "Plate", "Type", "Attendant", "Payment", "Price (ETB)", "Soap (ml)"]],
       body: txns.map((t) => [
         t.receipt_number || "",
-        t.started_at.slice(0, 10),
+        (t.started_at || "").slice(0, 10),
         t.plate || "",
         t.vehicle_type_id,
         t.washer_name || "",

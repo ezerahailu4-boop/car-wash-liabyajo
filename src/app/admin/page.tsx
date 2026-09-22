@@ -253,7 +253,7 @@ export default function AdminPage() {
           </div>
 
           <div className="p-3 rounded-xl bg-panel-2/60 border border-line">
-            <p className="text-[11px] font-mono text-muted uppercase">Today's Revenue</p>
+            <p className="text-[11px] font-mono text-muted uppercase">Today&apos;s Revenue</p>
             <p className="text-2xl font-bold font-mono text-accent mt-1">
               ETB {(settlementData?.totalRevenue || 0).toLocaleString()}
             </p>

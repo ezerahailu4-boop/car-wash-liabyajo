@@ -13,8 +13,8 @@ export async function fetchDashboardStats() {
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
-  const todayWashes = washes.filter((w) => w.started_at.startsWith(today) && w.status === "completed");
-  const yesterdayWashes = washes.filter((w) => w.started_at.startsWith(yesterday) && w.status === "completed");
+  const todayWashes = washes.filter((w) => (w.started_at || "").startsWith(today) && w.status === "completed");
+  const yesterdayWashes = washes.filter((w) => (w.started_at || "").startsWith(yesterday) && w.status === "completed");
 
   const revenueToday = todayWashes.reduce((sum, w) => sum + w.price, 0);
   const revenueYesterday = yesterdayWashes.reduce((sum, w) => sum + w.price, 0);
@@ -35,7 +35,7 @@ export async function fetchDashboardStats() {
   }
 
   washes.forEach((w) => {
-    const day = w.started_at.slice(0, 10);
+    const day = (w.started_at || "").slice(0, 10);
     if (dayMap[day] && w.status === "completed") {
       dayMap[day].revenue += w.price;
     }
@@ -163,7 +163,7 @@ export async function fetchWasherStats(washerId: string) {
 
   const today = new Date().toISOString().slice(0, 10);
   const myWashes = allWashes.filter((w) => w.washer_id === washerId || w.washer_name?.toLowerCase().includes("yonas"));
-  const todayWashes = myWashes.filter((w) => w.started_at.startsWith(today));
+  const todayWashes = myWashes.filter((w) => (w.started_at || "").startsWith(today));
   const mySoap = soapBalList.find((s) => s.id === washerId)?.soap ?? 650;
   const myRequests = allRequests.filter((r) => r.washer_id === washerId);
 
